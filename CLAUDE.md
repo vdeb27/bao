@@ -29,6 +29,10 @@ Use the correct Swahili terms throughout the codebase:
 | mkononi | victory achieved during the namu stage |
 | zamu | turn |
 | mchezaji | player |
+| kunamua | the act of playing a namu move (verb form of namu) |
+| safari | during a capture-sow, the player's choice to empty their own functional nyumba in order to continue the sow |
+| kichwa-selectie | player choice of which kichwa pit (left or right) is the start of a capture-sow; only a real choice when the capture happens in middle mbele with no prior direction |
+| kutakatia | mtaji-phase blocking mechanism: after specific takata moves, an opponent pit is marked so it can only be captured (not sown into) for the next few turns |
 
 ## Architecture
 
