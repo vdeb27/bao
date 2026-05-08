@@ -18,10 +18,15 @@ Variant-specifieke regels worden in twee kolommen weergegeven (Kiswahili | Kujif
 
 | Sigla | Bron | Status |
 |-------|------|--------|
-| **R** | Russ — exacte editie nog te bevestigen (Open Question #3 in plan); waarschijnlijk *Mancala Games* (1984) door Laurence Russ. Het oorspronkelijke plan citeerde "*Bao: A Game for Two Players*" — die titel kon niet eenduidig worden teruggevonden | TBD |
-| **dV** | Alex de Voogt, etnografisch werk over Bao (Zanzibar/Lamu) | TBD |
+| **R** | Russ — niet teruggevonden als canonieke Bao-bron. Wikipedia citeert Russ niet; vermoedelijk een misattribution in het oorspronkelijke plan | OBSOLETE (zie dV) |
+| **dV** | Alex de Voogt, *Limits of the mind: towards a characterization of Bao mastership* (1995, PhD thesis, Leiden University). Volgens Wikipedia "the most influential transcription of the rules". PDF achter paywall (ResearchGate, Academia.edu); we benaderen dV via K (zie hieronder) als proxy | INDIRECT (via K) |
 | **BS** | Bao Society / FIDE Mind Sports toernooiregels | TBD |
-| **G** | `geziefer/baolakiswahili` — werkende BGA-implementatie door Alexander Rühl, gebruikt als gedragsoracle. Volledig geanalyseerd; bevindingen in `docs/rules-sources/geziefer_bga.md` | DRAFT (extracted) |
+| **W** | `en.wikipedia.org/wiki/Bao_(game)`. Secundaire synthese, citeert dV. Bevindingen in `docs/rules-sources/wikipedia.md` | DRAFT (extracted) |
+| **G** | `geziefer/baolakiswahili` — werkende BGA-implementatie door Alexander Rühl. Bevindingen in `docs/rules-sources/geziefer_bga.md` | DRAFT (extracted) |
+| **MWW** | Mancala World wiki (Fandom) — `Bao_la_Kiswahili`, auteur Ralf Gering, CC BY-SA 2.5. Volledige inhoud verkregen via gebruiker-paste op 2026-05-08. Bevindingen in `docs/rules-sources/mancala_world_wiki.md` | DRAFT (extracted, complete) |
+| **A** | `abstractstrategygames.blogspot.com/2011/01/bao-sum-up-of-rules.html` — gestructureerde regelset met regelnummers (Rule 1.4.4 etc.). Geen expliciete attributie; lijkt afgeleid van dV. Bevindingen in `docs/rules-sources/abstractstrategygames.md` | DRAFT (extracted) |
+| **M** | `medium.com/@navpil/.../7f1131bc3e0c` — Dmytro Polovynka, "Learn how to play Bao la Kiswahili step-by-step" (2026-03-09). Behandelt Kujifunza expliciet. Bevindingen in `docs/rules-sources/medium_polovynka.md` | DRAFT (extracted) |
+| **K** | `kibao.org/cs_kanuni.php?lng=en` — citeert dV (1995) en de Dar-es-Salaam Regional Traditional Games Association als bron. **De best beschikbare proxy voor dV's thesis.** Bevindingen in `docs/rules-sources/kibao_org.md` | DRAFT (extracted, dV-proxy) |
 
 Per-bron citaat-extracten leven in `docs/rules-sources/`.
 
@@ -41,20 +46,22 @@ Zie `CLAUDE.md` voor de Swahili termen. De volgende termen zijn ontdekt via bron
 | `kunamua` | Werkwoord van namu (de namu-zet uitvoeren) | G | DRAFT (G-only) |
 | `safari` | Speler-keuze tijdens een capture-sow: of de eigen functional nyumba "geplunderd" wordt om de sow voort te zetten. Niet-namu-related zoals oorspronkelijk vermoed — alleen tijdens mtaji of namu-capture-sow | G regel 1408–1428, 1745–1756 | DRAFT (G-only) |
 | `kichwa-selectie` | Speler-keuze welk kichwa-shimo (field 1 of 8) gebruikt wordt voor de capture-sow. Deterministisch in 4 van 5 condities; alleen player-choice bij middle-capture met onbepaalde richting | G regel 442–482 | DRAFT (G-only) |
-| `kutakatia` | Mtaji-fase blokkeermechanisme: na bepaalde takata-zetten wordt een opponent-veld "gemarkeerd" zodat het de volgende beurten alleen-via-capture-aanraakbaar is | G regel 630–697 | DRAFT (G-only) |
-| `tax` (taxing nyumba) | Geziefer-specifiek: namu-takata vanaf eigen functional nyumba haalt slechts 2 kete eruit i.p.v. de hele inhoud | G regel 1168–1177 | DRAFT (G-only, mogelijk huisregel) |
+| `kutakatia` / `takasia` / `takatia` | Mtaji-fase blokkeermechanisme: na bepaalde takata-zetten wordt een opponent-veld "gemarkeerd" zodat het de volgende beurten alleen-via-capture-aanraakbaar is. Spellingsvarianten zijn werkwoord (kutakatia = "to make takata against") vs passieve/zelfstandig-naamwoord-vormen | G regel 630–697; MWW (snippet) | DRAFT (G+MWW corroborated; details conflicteren) |
+| `tax` (taxing nyumba) | Namu-takata vanaf eigen functional nyumba haalt slechts 2 kete eruit i.p.v. de hele inhoud | G regel 1168–1177; W "taxing the nyumba" | **DRAFT (G+W corroborated)** — niet huisregel, klassieke regel |
 
 ## 1. Bord-topologie
 
 ### 1.1 Layout
 - Het bord telt 4 rijen × 8 kolommen = **32 vichwa totaal**, gelijk verdeeld: **16 per speler** (2 rijen × 8 kolommen).
 - Mbele = front row (richting opponent); nyuma = back row (eigen kant).
-- Kichwa: extreme kolommen van mbele (`a` en `h`). 4 kichwa-posities op het bord (2 per speler).
-- Kimbi: positie naast kichwa in mbele. Of dat `b` en `g` zijn (één-na-extreem) of overlapt met kichwa zelf is bron-afhankelijk; CLAUDE.md's glossary noemt kichwa als "first or last" en kimbi als "ultimate and penultimate" — TBD per bron. Geziefer behandelt fields 1–2 als "left kichwa/kimbi" en 7–8 als "right kichwa/kimbi" voor kichwa-selectie-logica.
+- **Kichwa = mbele-pits 1 en 8** (uiteinden, "head"). 2 per speler, 4 op het bord.
+- **Kimbi = mbele-pits 1, 2, 7 en 8** ("flanks", inclusief kichwa als bovenset). 4 per speler, 8 op het bord. Definitie expliciet bevestigd door W ("name kimbi applies to both the kichwa and the pits adjacent to them, i.e., the second and next to last pit"), M ("the holes 1, 2, 7 and 8") en A.
+- **Centrale mbele-pits** = pits 3, 4, 5, 6 (vier middelste).
+- **CLAUDE.md-glossary correctie**: kichwa is "first or last" pit van mbele; kimbi is een **bovenset** van die uitersten plus hun directe buurpits. Niet "ultimate and penultimate" zoals CLAUDE.md zei.
 - Nyumba: vaste positie per kant — zie §1.2.
 
-**Sources**: G (bord-comment regel 21–27)
-**Status**: DRAFT (G-only; kichwa/kimbi-precieze positionering nog te bevestigen)
+**Sources**: G regel 21–27; W; A; M; K
+**Status**: **DRAFT (G+W+A+M+K corroborated)**
 
 ### 1.2 Nyumba-positie
 
@@ -103,8 +110,8 @@ Ghala South: 22 kete
 Ghala North: 22 kete
 ```
 
-**Sources**: G regel 112–134 (`setupNewGame` Kiswahili branch)
-**Status**: DRAFT (G-only)
+**Sources**: G regel 112–134 (`setupNewGame` Kiswahili branch); W ("each player initially places 6 seeds in the nyumba, and two seeds in each of the two pits immediately to the right of the nyumba. All the remaining seeds are kept 'in hand'.")
+**Status**: **DRAFT (G+W corroborated)**
 
 ### 2.2 Bao la Kujifunza
 
@@ -116,8 +123,8 @@ Alle 16 vichwa per speler bevatten 2 kete; ghala = 0. Geen namu-fase. Het spel b
 | 1–16 | alle 2 | alle 2 |
 | **Per-speler totaal** | 32 | 32 |
 
-**Sources**: G regel 135–145 (`setupNewGame` Kujifunza/else branch)
-**Status**: DRAFT (G-only)
+**Sources**: G regel 135–145 (`setupNewGame` Kujifunza/else branch); W ("all seeds are placed at startup, two per pit. Players thus have no seeds in hand, and thus there is no namua phase.")
+**Status**: **DRAFT (G+W corroborated)**
 
 ### 2.3 Beginspeler
 
@@ -156,8 +163,8 @@ if (VARIANT_KISWAHILI &&
 
 Geen ply-cap; geen "één ghala leeg" overgang.
 
-**Sources**: G regel 1875–1893
-**Status**: DRAFT (G-only)
+**Sources**: G regel 1875–1893; W ("When players are left without seeds in their hands, the namua phase is over").
+**Status**: **DRAFT (G+W corroborated)**
 
 ## 4. Zet-types
 
@@ -169,9 +176,16 @@ Geen ply-cap; geen "één ghala leeg" overgang.
 | Mtaji | beide | Sow met capture aan einde | 2..15 kete in source ∧ landing ≤8 ∧ landing in own mbele non-empty ∧ opponent same column non-empty | `e1>` of `e1>*` | G regel 335–394 |
 | Takata | beide | Sow zonder capture | Geen mtaji-zet beschikbaar; mbele-vichwa met ≥2 kete eerst, anders nyuma | `e1>` zonder `*` | G regel 396–440 |
 
-**Mandatory-kula**: bevestigd actief in zowel namu als mtaji (G regel 1031–1035, 1063–1067, 1710–1715, 1763–1769).
+**Mandatory-kula**: bevestigd actief in zowel namu als mtaji (G regel 1031–1035, 1063–1067, 1710–1715, 1763–1769; W "A player must capture if he or she can do so" voor beide fases; A; M; K; MWW).
 
-**Status**: DRAFT (G-only)
+### Algemene capture-validatie (MWW-regels die ontbraken)
+
+| Regel | Bron | Geziefer-status |
+|-------|------|-----------------|
+| **First-lap-determines-captures**: als de eerste lap geen capture oplevert, kan in geen enkele endelea-vervolg-lap meer worden gekapen. Wel kan een capture-eerste-lap meerdere captures opleveren met daartussen non-capturing endelea-laps | MWW | impliciet correct (G's executeMove checkt capture alleen op landings die door de capture-flow gaan; takata-flow heeft geen capture-detection) |
+| **16-seeds-no-capture (mtaji-only)**: een mtaji-zet vanaf een pit met ≥16 kete kan geen capture opleveren — telt als takata | MWW; A ("not allowed to harvest starting a move from a pit with more than 15 seeds") | G implementeert via `count >= 2 && count <= 15` filter; CONFIRMED |
+
+**Status**: **CONFIRMED (5+ bronnen)**
 
 ## 5. Sowing
 
@@ -241,8 +255,8 @@ Na een capture-trigger (zowel namu als mtaji) wordt bepaald welke kichwa-pit (fi
 
 In 4 van 5 condities is kichwa-keuze deterministisch; alleen middle-capture-with-no-prior-direction (typisch: namu-kula in cols 3–6) is een echte player-keuze. Dat pleit voor een **sub-state** `Phase::AwaitKichwa` in plaats van een Move-veld dat altijd gezet moet zijn.
 
-**Sources**: G regel 442–482
-**Status**: DRAFT (G-only)
+**Sources**: G regel 442–482; W ("The choice of the kichwa to sow from is initially left to the player, with a few exceptions. If capture has occurred in any kimbi, sowing must start from the closest kichwa." en "On relay captures... it is never up to the player to choose which kichwa to sow from... the player must preserve the current clockwise or counterclockwise direction.")
+**Status**: **DRAFT (G+W corroborated)**
 
 ### 6.4 Safari (state 13) — beslissing tijdens capture-sow
 
@@ -263,8 +277,20 @@ $this->checkAndMarkDestroyedNyumba($player, $sourceField);
 
 **Vereist**: een sub-state `Phase::AwaitSafari` in onze FSM en een `Move::Safari(bool)` actie. Geen namu-mechanisme — alleen tijdens een capture-sow die toevallig in eigen nyumba uitkomt.
 
-**Sources**: G regel 1408–1428, 1514–1522, 1745–1756
-**Status**: DRAFT (G-only)
+### Conflict over mtaji-safari (C5 — nieuw)
+
+| Bron | Mtaji-safari is | Bron-citaat |
+|------|-----------------|-------------|
+| G | keuze | `argSafariDecision` in state 13 — speler krijgt button-keuze |
+| W | keuze | "the player may freely choose whether to relay-sow the contents of the nyumba or end his or her turn" |
+| A | keuze | "the move ends ... if the player wishes to stop" |
+| M | keuze | "a player may decide whether he wants to end the move now, or to continue" |
+| **MWW** | **VERPLICHT** | "In contrast to the namu stage, **the player must safari** (continue to sow), if the sowing ends in the nyumba." |
+
+**Voorlopige interpretatie**: mtaji-safari is een **keuze** (4 bronnen tegen 1). MWW is een outlier; mogelijk Ralf Gering hanteert een specifieke interpretatie. Zie §A C5.
+
+**Sources**: G; W; A; M; MWW (afwijkend)
+**Status**: **DRAFT (G+W+A+M corroborated keuze; MWW outlier — zie §A C5)**
 
 ## 7. Endelea (relay sowing)
 
@@ -305,25 +331,32 @@ Geldt alleen voor Kiswahili. Vaste positie per speler (zie §1.2). In Kujifunza 
 
 **Status**: DRAFT (G-only)
 
-### 8.3 Toestanden (functional / non-functional / destroyed)
+### 8.3 Toestanden — drie-states-model (CONFIRMED)
 
-Geziefer onderscheidt drie toestanden:
-- **Functional** (state 0): nog in bezit ∧ ≥6 kete
-- **Non-functional** (state 1): nog in bezit ∧ <6 kete (tijdelijk leeg geraakt of nooit gevoed tot 6)
-- **Destroyed** (state 2): is door eigen sow geleegd; permanent
+Het drie-states-model is door meerdere onafhankelijke bronnen bevestigd, met name **M** (Polovynka) die het expliciet uitspelt:
 
-| Element | Specificatie | Bron |
-|---------|--------------|------|
-| Wanneer wordt nyumba destroyed | wanneer de eigen kete-source-pit nyumba is en ge-emptyd wordt voor een nieuwe sow-lap | G regel 699–709, 1186, 1261, 1394, 1465 |
-| Wanneer wordt nyumba non-functional | wanneer de count <6 wordt door enige reden | G regel 606–613 |
-| "Voeden" / fed-status | geen aparte fed-flag in geziefer; immuniteit komt uit functional/destroyed-onderscheid | G (geen feeding-flag) |
-| Sow-pre-fed: stop, skip, of keuze | n.v.t. (geen feeding-onderscheid in geziefer) | G |
-| Sow op functional nyumba | als landing met `count > 1` in capture-sow → safari; in takata-sow als endelea-stop | G regel 1252, 1518 |
-| Sow op non-functional nyumba | normaal pit | G |
+| Toestand | Definitie | Gedrag bij sow-aankomst (mbele) |
+|----------|-----------|----------------------------------|
+| **Functional / valid** | owned ∧ ≥6 kete | Takata: zet stopt geforceerd. Capture-sow: safari-keuze (continue of stop). |
+| **Tijdelijk-onklaar / invalid** | owned ∧ <6 kete | Geen speciale eigenschappen. Endelea-step: zet continueert via deze pit; pit wordt geleegd → **transitie naar destroyed**. |
+| **Destroyed** | not owned (permanent) | Gewone pit zonder speciale status. |
 
-**Status**: DRAFT (G-only). Geziefer's functional/non-functional/destroyed model wijkt mogelijk af van klassieke "fed/unfed"-terminologie. Onderzoek vereist.
+**Triggers**:
 
-### 8.4 Tax-regel (geziefer-specifiek?)
+| Transitie | Trigger | Bron |
+|-----------|---------|------|
+| Functional → tijdelijk-onklaar | count <6 (zonder dat eigen-sow de nyumba leegmaakt). Bv. tax (2 kete eruit) maakt nyumba 4 kete → tijdelijk-onklaar | M ("If a house is refilled with 6 seeds it becomes a valid house again") |
+| Tijdelijk-onklaar → functional | count ≥6 weer (refill door sow van anderen of door capture-deposit) | M, G regel 606–613 |
+| Functional/tijdelijk-onklaar → destroyed (a) eigen-sow-leegt | Eigen sow gebruikt nyumba als bron in mtaji én leegt hem | G regel 699–709; K ("Player loses its house if he empties it") |
+| Functional/tijdelijk-onklaar → destroyed (b) opponent-capture | Opponent capture't nyumba | K ("or when the opponent captures it") |
+| Tijdelijk-onklaar → destroyed (c) endelea-step | Een endelea-step met laatste-kete in tijdelijk-onklaar nyumba: zet continueert door de nyumba, hij wordt geleegd → destroyed | M ("if a last sown seed falls there, then the move continues and the house is destroyed") |
+
+**Geziefer's `checkForNyumbaState`** (regel 616–628) returnt 0/1/2 (functional/non-functional/destroyed); bevestigt het 3-state model.
+
+**Sources**: G regel 606–628, 699–709; A ("Players loose their house if it is emptied or when the first harvest"); M (expliciet 3-state); K ("if he empties it or when the opponent captures it"); W (binair model — onderspecifiek, de tijdelijk-onklaar-state ontbreekt)
+**Status**: **CONFIRMED 3-state model** — user-bevestigd, gecorroboreerd door A+M+K+G. W's binair model is een vereenvoudiging (zie §A C1).
+
+### 8.4 Tax-regel
 
 Wanneer namu-takata vanaf eigen functional nyumba wordt gespeeld én de nyumba is de bron, worden **slechts 2 kete** uit de nyumba gehaald i.p.v. de hele inhoud. Vervolgens wordt normaal gesowd vanaf nyumba+1 met 2 kete.
 
@@ -337,10 +370,10 @@ if ($sourceField == $nyumba && $wasNyumbaFunctional) {
 }
 ```
 
-**Mogelijk huisregel**. Bevestigen tegen klassieke bron.
+**Bevestigd als canonical**: Wikipedia citeert dezelfde regel exact ("if, during the namua phase, the player begins his turn sowing from the nyumba, he will only sow two seeds from the nyumba rather than its whole content; this is called 'taxing' the nyumba"). De `taxActive_`-actie in geziefer is dus geen huisregel.
 
-**Sources**: G regel 1168–1177
-**Status**: DRAFT (G-only, mogelijk niet canon — flag voor secundaire bron)
+**Sources**: G regel 1168–1177; W
+**Status**: **DRAFT (G+W corroborated)**
 
 ### 8.5 Kunamua non-capture restricties
 
@@ -390,12 +423,12 @@ if ($canMove && !$isEmpty) {
 
 | Bron | Verlies / remise / anders |
 |------|---------------------------|
-| R | TBD |
-| dV | TBD |
+| dV | TBD (Wikipedia synthetiseert dV) |
 | BS | TBD |
+| W | **VERLIES** ("In both cases, this player loses the game.") |
 | G | **VERLIES** |
 
-**Status**: DRAFT (G-only — Open Question #5 voorlopig beantwoord met G; bevestiging tegen R/dV/BS gewenst voor `CONFIRMED`)
+**Status**: **DRAFT (G+W corroborated)** — Open Question #5 beantwoord. `CONFIRMED` na directe dV-raadpleging.
 
 ### 9.4 12-rounds-zombie
 
@@ -444,43 +477,104 @@ In notation krijgt zo'n zet een `*`.
 
 **Implicatie voor onze engine**: `BoardState` heeft minimaal een `kutakatia: Option<KutakatiaState>`-veld nodig met `{blocked_field, blocked_player, moves_remaining}`.
 
-**Sources**: G regel 630–697, 343–354, 405–416, 1771–1786, 1896–1913
-**Status**: DRAFT (G-only — bevestigen tegen klassieke bronnen)
+**Cross-validatie**:
+- **A** (blog): identieke 3-tuple exclusies (still-owned-house, only-occupied, only-with-≥2). Effect: "If kuendelea ends in a kutakatia-ed pit, the move ends." Trigger: na takata + opponent kutakata-d laten waardoor exact één opponent-veld te kapen → blokkeer dat veld.
+- **M** (Polovynka): identieke 3-tuple exclusies. Effect: "Opponent can't sow seeds from the blocked hole and if a last seed falls into that blocked hole, sowing immediately stops."
+- **K** (kibao/dV): twee-exclusies-formulering ("only hole which allows the opponent to play" + "opponent's house"); semantisch waarschijnlijk equivalent (de unieformulering omvat M+A's "only-occupied" en "only-with-≥2"). Trigger inhoudelijk gelijk.
+- **MWW** (snippet): "However, a nyumba itself cannot be takasiaed" + endelea-stop tenzij eerste lap vanuit nyumba.
+
+**Conclusie**: het bestaan en de trigger zijn unaniem; exclusies zijn 3-tuple (G+A+M) of equivalent compact (K). De **3-zetten-duur** is uniek aan G en niet door andere bronnen bevestigd.
+
+**Sources**: G regel 630–697, 343–354, 405–416, 1771–1786, 1896–1913; A; M; K; MWW (snippet)
+**Status**: **DRAFT (G+A+M+K+MWW corroborated)** — duur (3 zetten in G) is enige niet-bevestigde detail. Zie §A C2 voor resterende detail-vragen.
+
+## 12. Bewegingsbeperkingen
+
+### 12.1 No-singleton-regel
+
+> "It's not allowed to play a hole that contains only one seed." (K)
+>
+> "it's forbidden to play singletons — holes with a single seed in it." (M)
+
+**Conditie**: een mtaji-zet mag **niet** vanuit een vichwa met exact 1 kete worden gestart. Geldt voor zowel mtaji-capture als mtaji-takata.
+
+**Verfijning** (M): "if a house is destroyed and there are no capturing moves, then a player has to prefer holes with more than one seed." — dus prefer ≥2-pits boven singletons als geen captures mogelijk.
+
+**Namu**: irrelevant — de namu-plaatsing maakt elke gekozen mbele-pit sowieso ≥2 vóór sow.
+
+**Geziefer-conformiteit**: G's `getMtajiPossibleNonCaptures` (regel 419, 422) gebruikt `count >= 2`; consistent met de no-singleton-regel.
+
+**Sources**: K, M; consistent met G
+**Status**: **DRAFT (M+K corroborated; G consistent)**
+
+### 12.2 No-suicide-regels
+
+Twee specifieke vormen, beide in K (= dV-proxy) en A:
+
+#### 12.2.1 Front-row mag nooit geleegd worden
+
+> "The front row may never be emptied, not even temporarily." (MWW)
+
+Algemene regel. **MWW formuleert sterker** dan A en K, die alleen het kichwa-edge-case noemen.
+
+#### 12.2.2 Kichwa-takata-richting (specifiek geval)
+
+> "If the only occupied hole of the front row is a kichwa and it contains two or more seeds, they must be sown towards the center of the front row." (MWW)
+>
+> "If the only filled hole on the front row is one of the kichwas, then kutakata cannot be done in the direction of the back row." (K)
+>
+> Rule 1.5.3.1 (A): "If the only filled pit on the front row is one of the kichwa-s, then kutakata cannot be done in the direction of the back row (because the front row will be empty and the game is a loss)."
+
+MWW formuleert het positief ("MUST be sown towards center"), K en A negatief ("CANNOT be done in direction of back row"). Beide gelijkwaardig: van field 1 → +1 (richting field 2), van field 8 → -1 (richting field 7).
+
+#### 12.2.3 Takata-source-rij in kunamua
+
+> "Kutakata cannot start from the back row" (K, kunamua context)
+
+In kunamua plant de speler in mbele en sowt vanaf daar; takata vanuit nyuma is sowieso geen valide kunamua-actie. Deze regel lijkt redundant of dekt een edge-case. TBD; mogelijk onbedoeld in de context.
+
+**Geziefer-skip**: G regel 1005–1008 documenteert expliciet dat deze "no prevention of a move which causes loss of the player" niet wordt afgedwongen. **Onze engine moet dit wél afdwingen** voor canonical-conform spel.
+
+**Sources**: K, A, MWW
+**Status**: **CONFIRMED (3 bronnen)** — MWW formuleert sterker dan K+A; geziefer skipt expliciet
 
 ## A. Conflict-log
 
-Geen conflicten yet (we hebben nog maar één geconsulteerde bron). Verwachte conflicten:
-- Tax-regel (§8.4): mogelijk huisregel in geziefer
-- Functional/non-functional/destroyed model (§8.3) vs klassiek "fed/unfed"
-- Stalemate-uitkomst (§9.3) bij confrontatie met de Voogt
-- Mandatory kula in namu (§3.1) — verschillende auteurs hebben verschillende strengheid
-- "No suicide"-regel (geziefer-skipped, line 1005–1008)
+Geziefer + Wikipedia + Mancala World snippet vergeleken. Twee echte conflicten ontdekt; één voorlopig verwerpen ten gunste van de simpelere kant en één wachten op derde bron.
 
-| ID | Conflict-onderwerp | Bron-uitspraken | Gekozen interpretatie | Reden | User-bevestigd |
-|----|---------------------|------------------|------------------------|-------|----------------|
-| C1 | TBD | TBD | TBD | TBD | nee |
+| ID | Conflict-onderwerp | Bron-uitspraken | Voorlopige interpretatie | Reden | User-bevestigd |
+|----|---------------------|------------------|--------------------------|-------|----------------|
+| C1 | Nyumba-toestanden: 3-state vs 2-state | **G+A+M+K**: drie toestanden bevestigd (functional / tijdelijk-onklaar / destroyed). **W**: binair (special / not-special) | **3-state model** (zie §8.3) | M expliciet 3-state, K (= dV-proxy) impliceert het, G implementeert het, A zinspeelt erop. W is een vereenvoudiging | **JA (RESOLVED)** |
+| C2 | Kutakatia-duur | **G**: exact 3 zetten (`kutakatiaMoves = 3`, decrementeert per beurt). **A+M+K+MWW**: duur niet expliciet | Aanhouden G's 3 zetten als startpunt | Geen tegenstrijdige bron; alle anderen specificeren duur niet | nee — open |
+| C3 | Kutakatia-exclusies: 3-tuple of unie-formulering | **G+A+M**: drie exclusies (nyumba, only-occupied, only-with-≥2). **K**: twee exclusies ("only-hole-allowing-play" + "opponent's house"). **MWW**: alleen nyumba | 3-tuple van G+A+M is concretiserend; K is waarschijnlijk equivalent unieformulering; MWW is incompleet (snippet) | Drie onafhankelijke bronnen geven dezelfde 3-tuple; K's compactere formulering is semantisch dekkend | impliciet via §11 |
+| C4 | No-suicide-regel | **K+A+MWW**: kichwa-takata richting nyuma verboden + "front row mag nooit geleegd". **G**: skipt expliciet | Implementeren conform K+A+MWW | Drie bronnen bevestigen; geziefer geeft toe het te skippen. MWW formulering ("front row may never be emptied, not even temporarily") is meest algemene formulering | impliciet via §12.2 |
+| C5 | Mtaji-safari: keuze of verplicht | **G+W+A+M**: keuze. **MWW**: verplicht ("In contrast to the namu stage, the player must safari") | Keuze (4-tegen-1) | MWW is outlier; geen 2e bron die mtaji-safari als verplicht beschrijft. Mogelijk auteur-specifieke (Gering) lezing | nee — open |
 
-(Eerste daadwerkelijke conflict-rij komt na 2e bron-consultatie.)
+**Verwachte verdere conflicten** (na directe dV-raadpleging):
+- Mandatory-kula-precision op edge cases
+- Kichwa-with-≥16-kete restrictie (G skipt expliciet, niet door anderen besproken)
+- 12-rounds-cap (G-implementatie-detail; klassieke regel onbekend — A noemt Rule 1.5.6 als "infinite moves illegal" maar geen exacte tekst opgevangen)
 
 ## B. Open Questions die dit document moet oplossen vóór fase 1
 
 (Spiegeling van Open Questions uit het plan.)
 
-| # | Vraag | Geziefer's antwoord | Status |
-|---|-------|---------------------|--------|
-| 2 | Initiële bordpositie per variant | §2.1 + §2.2 ingevuld | DRAFT (G-only) |
-| 3 | Russ-editie bevestigen | (geziefer geeft geen antwoord) | TBD |
-| 4 | Namu-kula richtingskeuze (forced of player choice) | §6.2: indirect player-keuze via kichwa-selectie; meestal forced bij rand-captures, keuze bij middle | DRAFT (G-only) |
-| 5 | Stalemate-uitkomst (verlies of remise) | §9.3: verlies | DRAFT (G-only) |
-| 9 | Wat is "safari"? | §6.4: capture-sow in eigen functional nyumba — keuze ja/nee | DRAFT (G-only) |
-| 10 | Kichwa-selectie als sub-state? | §6.3: ja, sub-state `AwaitKichwa` nodig (player-keuze in 1 van 5 condities) | DRAFT (G-only) |
-| 11 | Hus uitsluiten? | §10 + introductie: ja, Hus blijft out-of-scope | CONFIRMED (user-keuze) |
+| # | Vraag | Antwoord | Status |
+|---|-------|----------|--------|
+| 2 | Initiële bordpositie per variant | §2.1 + §2.2 ingevuld | **CONFIRMED (G+W+A+M+K)** |
+| 3 | Russ-editie bevestigen | Wikipedia citeert Russ niet; **dV (1995)** is canonieke primaire bron, geraadpleegd via K als proxy | OBSOLETE → dV-by-proxy |
+| 4 | Namu-kula richtingskeuze | §6.2: indirect via kichwa-selectie; rand-captures forced, middle player-keuze | **CONFIRMED (G+W+A+M+K)** |
+| 5 | Stalemate-uitkomst | §9.3: verlies | **CONFIRMED (G+W+A+K)** |
+| 9 | Wat is "safari"? | §6.4: keuze om eigen functional nyumba leeg te plunderen tijdens capture-sow | **CONFIRMED (G+W+A+M)** |
+| 10 | Kichwa-selectie als sub-state? | §6.3: ja, sub-state `AwaitKichwa` voor middle-no-prior-direction | **CONFIRMED (G+W+A+M+K)** |
+| 11 | Hus uitsluiten? | §10 + introductie: ja | CONFIRMED (user-keuze) |
+| C1 | Nyumba-toestanden | §8.3: 3-state (functional / tijdelijk-onklaar / destroyed) | **CONFIRMED (G+A+M+K, user)** |
 
-Resterende open vraagstukken die geziefer NIET dekt (alleen relevant in latere fases):
-- Welke specifieke editie van Russ
-- De echte feeding/immuniteit-mechaniek (geziefer heeft alleen functional/non-functional/destroyed)
-- Kutakatia-precisie (blokkering-duur, exclusies)
-- "No suicide"-regel
-- Tax-regel als canon of huisregel
+**Niet-blokkerende open vraagstukken**:
+- **C2** kutakatia-duur (G's 3 zetten — niet door andere bron bevestigd; G is enige bron met expliciete duur)
+- **C5** mtaji-safari: keuze (G+W+A+M) of verplicht (MWW). 4-1 voor keuze; voorlopige interpretatie: keuze
+- "First-lap-from-nyumba" uitzondering op kutakatia-stop (MWW: "unless it has been reached in the first lap from a nyumba") — implementatie-detail van §11
+- Mandatory-kula edge cases (mogelijk irrelevant voor MVP)
+- Exact gedrag van "infinite moves" (Rule 1.5.6 in A; G's 12-rounds is workable proxy)
 
-Geen van bovenstaande is een blokker voor fase-1-engine-werk MITS we accepteren dat fase 1 op DRAFT (G-only) regels begint en de engine deze regels achteraf kan bijgewerken zodra een tweede bron beschikbaar is. Voor fase 1 zonder secundaire bronraadpleging stelt dat de regels zoals geziefer ze interpreteert als baseline vast.
+**Status fase 1 readiness**: alle voorheen-blokkerende vragen zijn `CONFIRMED` met 3+ onafhankelijke bronnen (G+W+A+M+K+MWW). C2 en C5 kunnen tijdens engine-implementatie verfijnd worden zonder data-model-impact. **Fase 1 is unblocked.**

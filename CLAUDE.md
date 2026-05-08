@@ -14,8 +14,8 @@ Use the correct Swahili terms throughout the codebase:
 |------|---------|
 | kete | seeds/counters (game pieces) |
 | shimo / vichwa (pl.) | pit/hole |
-| kichwa / vichwa (pl.) | first or last hole in the front row |
-| kimbi | ultimate and penultimate holes in the front row |
+| kichwa / vichwa (pl.) | first or last hole in the front row (positions 1 and 8) |
+| kimbi | the four flank holes of the front row, including the kichwa: positions 1, 2, 7, and 8. Kimbi is a superset of kichwa |
 | nyumba | the special square hole |
 | mbele | front row |
 | nyuma | back row |
