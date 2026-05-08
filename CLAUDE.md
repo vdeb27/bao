@@ -42,6 +42,6 @@ The codebase is split into three decoupled layers that all share the same rules 
 
 ## ELO system
 
-- Separate ELO pools for Bao la Kiswahili and Bao la Kujifunza.
+- Single ELO pool, scoped to Bao la Kiswahili. Bao la Kujifunza is a feature-flag variant of the same engine and shares no separate ratings initially; a per-variant pool may be added later if Kujifunza moves out of teaching-only scope.
 - Human player ELO and AI checkpoint ELO are stored in `data/elo.json`.
 - AI checkpoints are stored in `models/` and labeled with their ELO at save time.

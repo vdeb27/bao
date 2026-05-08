@@ -1,0 +1,15 @@
+[package]
+name = "bao-engine-py"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PyO3 bindings for bao-engine."
+
+[lib]
+name = "bao_engine_py"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bao-engine = { workspace = true }
+pyo3 = { version = "0.22", features = ["extension-module"] }

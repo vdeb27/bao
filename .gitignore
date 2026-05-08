@@ -1,0 +1,40 @@
+# Rust build output
+target/
+crates/*/target/
+bindings/*/target/
+**/Cargo.lock.bak
+
+# Python
+**/.venv/
+**/__pycache__/
+**/*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# Node
+ui/node_modules/
+ui/dist/
+ui/.vite/
+**/npm-debug.log*
+
+# WASM build output
+bindings/wasm/pkg/
+
+# ELO registry (server-side authoritative; data/elo.json is exported)
+**/registry.db
+**/registry.db-journal
+data/elo.json
+
+# Trained model artifacts
+ui/public/models/*.onnx
+training/checkpoints/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp

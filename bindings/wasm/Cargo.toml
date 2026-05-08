@@ -1,0 +1,21 @@
+[package]
+name = "bao-engine-wasm"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "wasm-bindgen bindings for bao-engine."
+
+[lib]
+name = "bao_engine_wasm"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bao-engine = { workspace = true }
+# Pin to versions compatible with system rustc 1.75.0; bump together when toolchain advances.
+wasm-bindgen = "=0.2.93"
+serde = { workspace = true }
+serde-wasm-bindgen = "=0.6.5"
+
+[features]
+default = []

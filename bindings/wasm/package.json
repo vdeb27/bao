@@ -1,0 +1,11 @@
+{
+  "name": "@bao/engine-wasm",
+  "version": "0.0.1",
+  "description": "wasm-bindgen wrapper for bao-engine; built via wasm-pack into pkg/.",
+  "private": true,
+  "scripts": {
+    "build": "wasm-pack build --target web --release",
+    "build:dev": "wasm-pack build --target web --dev"
+  },
+  "files": ["pkg"]
+}

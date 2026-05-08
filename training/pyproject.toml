@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bao-train"
+version = "0.0.1"
+description = "AlphaZero-style self-play training pipeline for Bao la Kiswahili."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+train = [
+    "torch>=2.2",
+    "onnx>=1.16",
+    "wandb>=0.17",
+    "tqdm>=4.66",
+]
+dev = [
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pytest>=8",
+    "hypothesis>=6.100",
+]
+
+[tool.setuptools.packages.find]
+include = ["bao_train*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
