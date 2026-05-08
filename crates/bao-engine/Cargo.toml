@@ -13,7 +13,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-proptest = "1"
+# proptest will be re-added when property-based tests are introduced; pin
+# carefully — proptest 1.5+ pulls a getrandom that requires edition2024.
 
 [lib]
 name = "bao_engine"
