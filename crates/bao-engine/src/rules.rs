@@ -4,7 +4,7 @@
 //! and apply() come in a follow-up step.
 
 use crate::board::{
-    next_pit, BoardState, Direction, NyumbaState, Phase, Side, Substate, MBELE_LEN,
+    next_pit, BoardState, Direction, Kutakatia, NyumbaState, Phase, Side, Substate, MBELE_LEN,
     NYUMBA_FUNCTIONAL_THRESHOLD, PITS_PER_SIDE,
 };
 use crate::events::MoveEvent;
@@ -140,22 +140,25 @@ fn namu_non_captures(own: &Side, variant: Variant) -> Vec<Move> {
 // ---------- Mtaji ----------------------------------------------------------------
 
 fn mtaji_legal_moves(state: &BoardState) -> Vec<Move> {
-    let own = state.active_side();
-    let opp = state.opponent_side();
-
-    let captures = mtaji_captures(own, opp);
+    let captures = mtaji_captures(state);
     if !captures.is_empty() {
-        // TODO RULES.md §11: when active player is the kutakatia-blocker and
-        // the blocked field is among capturable fields, restrict to that one.
         return captures;
     }
-    mtaji_takata(own)
+    mtaji_takata(state)
 }
 
 /// RULES.md §6.1 + §4 16-seeds-no-capture: source has 2..=15 kete; landing
 /// must be in own mbele (idx 0..7); own.mbele[land] >= 1 (pre-drop) AND
-/// opp.mbele[land] >= 1.
-fn mtaji_captures(own: &Side, opp: &Side) -> Vec<Move> {
+/// opp.mbele[land] >= 1. Kutakatia (RULES.md §11) is enforced here per
+/// geziefer `getMtajiPossibleCaptures`: if the active player is the
+/// blocking player, only captures landing at blocked_field are allowed; if
+/// the active player is the blocked player, no captures at all.
+fn mtaji_captures(state: &BoardState) -> Vec<Move> {
+    let active = state.active;
+    let opp_idx = state.opponent(active) as usize;
+    let own = &state.sides[active as usize];
+    let opp = &state.sides[opp_idx];
+
     let mut out = Vec::new();
     for pit in 0..PITS_PER_SIDE as u8 {
         let count = own.vichwa[pit as usize];
@@ -167,9 +170,21 @@ fn mtaji_captures(own: &Side, opp: &Side) -> Vec<Move> {
             if (land as usize) >= MBELE_LEN {
                 continue;
             }
-            if own.vichwa[land as usize] >= 1 && opp.vichwa[land as usize] >= 1 {
-                out.push(Move::Mtaji { pit, dir });
+            if !(own.vichwa[land as usize] >= 1 && opp.vichwa[land as usize] >= 1) {
+                continue;
             }
+            if let Some(kt) = state.kutakatia {
+                if kt.blocked_player == opp_idx as u8 {
+                    // Active is the blocker: only captures landing at blocked_field.
+                    if land != kt.blocked_field {
+                        continue;
+                    }
+                } else if kt.blocked_player == active {
+                    // Active is the blocked player: no captures permitted.
+                    continue;
+                }
+            }
+            out.push(Move::Mtaji { pit, dir });
         }
     }
     out
@@ -178,9 +193,22 @@ fn mtaji_captures(own: &Side, opp: &Side) -> Vec<Move> {
 /// RULES.md §12.1 (no-singleton): source >=2. Prefer mbele over nyuma per
 /// geziefer's `getMtajiPossibleNonCaptures`. RULES.md §12.2.2 (no-suicide):
 /// if the only filled mbele pit is a kichwa, sow must go toward center.
-fn mtaji_takata(own: &Side) -> Vec<Move> {
+/// Kutakatia (RULES.md §11): blocked player cannot use blocked_field as
+/// takata source.
+fn mtaji_takata(state: &BoardState) -> Vec<Move> {
+    let active = state.active;
+    let own = &state.sides[active as usize];
+
+    let blocked_field: Option<u8> = state.kutakatia.and_then(|kt| {
+        if kt.blocked_player == active {
+            Some(kt.blocked_field)
+        } else {
+            None
+        }
+    });
+
     let mbele_with_two: Vec<u8> = (0..MBELE_LEN as u8)
-        .filter(|&c| own.vichwa[c as usize] >= 2)
+        .filter(|&c| own.vichwa[c as usize] >= 2 && Some(c) != blocked_field)
         .collect();
 
     let mut out = Vec::new();
@@ -197,7 +225,9 @@ fn mtaji_takata(own: &Side) -> Vec<Move> {
         return out;
     }
 
-    // No mbele >=2: nyuma sources only (still no-singleton: >=2).
+    // Nyuma fallback (no kutakatia source restriction in nyuma — geziefer
+    // applies the source filter only in mbele, since blocked_field is always
+    // an mbele index).
     for pit in MBELE_LEN as u8..PITS_PER_SIDE as u8 {
         if own.vichwa[pit as usize] >= 2 {
             for &dir in &[Direction::Cw, Direction::Ccw] {
@@ -437,6 +467,7 @@ fn apply_mtaji(
 
     // Mtaji-takata.
     do_takata_sow(state, events, pit, dir, count)?;
+    maybe_activate_kutakatia(state, events);
     end_turn(state, events);
     Ok(())
 }
@@ -662,7 +693,15 @@ fn end_turn(state: &mut BoardState, events: &mut Vec<MoveEvent>) {
     state.active = 1 - state.active;
     state.ply += 1;
 
-    // TODO RULES.md §11: decrement kutakatia counter and clear if 0.
+    // Kutakatia decrement (RULES.md §11). Geziefer decrements once per
+    // turn-switch; clears the block when the counter reaches zero.
+    if let Some(kt) = state.kutakatia.as_mut() {
+        kt.turns_remaining = kt.turns_remaining.saturating_sub(1);
+        if kt.turns_remaining == 0 {
+            state.kutakatia = None;
+            events.push(MoveEvent::KutakatiaCleared);
+        }
+    }
 
     // Phase shift namu → mtaji (Kiswahili) when both ghalas are empty
     // (RULES.md §3.3).
@@ -703,6 +742,109 @@ fn check_terminal(state: &BoardState) -> Option<u8> {
         return Some(state.opponent(state.active));
     }
     None
+}
+
+/// RULES.md §11 (kutakatia activation). Run after a mtaji-takata move,
+/// before end_turn switches the active player. Mirrors geziefer
+/// `checkAndMarkKutakatia`.
+fn maybe_activate_kutakatia(state: &mut BoardState, events: &mut Vec<MoveEvent>) {
+    if state.variant != Variant::Kiswahili {
+        return;
+    }
+    if !matches!(state.phase, Phase::Mtaji(_)) {
+        return;
+    }
+    let active = state.active;
+    let opp_idx = state.opponent(active) as usize;
+
+    // Compute raw possible captures for both sides without kutakatia
+    // filtering. Geziefer uses its filtered version; we deliberately use a
+    // raw check here so activation isn't double-conditioned on a stale
+    // block. The practical effect on Bao positions is negligible because
+    // kutakatia activation requires the opponent to currently have zero
+    // captures, which is a clean condition independent of any prior block.
+    let player_captures =
+        raw_mtaji_captures(&state.sides[active as usize], &state.sides[opp_idx]);
+    if player_captures.is_empty() {
+        return;
+    }
+    let opp_captures =
+        raw_mtaji_captures(&state.sides[opp_idx], &state.sides[active as usize]);
+    if !opp_captures.is_empty() {
+        return;
+    }
+
+    // Unique destination fields of player's captures.
+    let mut destinations: Vec<u8> = player_captures
+        .iter()
+        .map(|m| match m {
+            Move::Mtaji { pit, dir } => {
+                let count = state.sides[active as usize].vichwa[*pit as usize];
+                landing(*pit, *dir, count)
+            }
+            _ => unreachable!(),
+        })
+        .collect();
+    destinations.sort_unstable();
+    destinations.dedup();
+    if destinations.len() != 1 {
+        return;
+    }
+    let field = destinations[0];
+
+    // Exclusions: opp's functional nyumba, opp's only-≥1 mbele, opp's
+    // only-≥2 mbele.
+    let opp_side = &state.sides[opp_idx];
+    let is_opp_func_nyumba = field == opp_side.nyumba_col
+        && opp_side.nyumba_owned
+        && opp_side.vichwa[field as usize] >= NYUMBA_FUNCTIONAL_THRESHOLD;
+    if is_opp_func_nyumba {
+        return;
+    }
+    let opp_mbele_with_1: Vec<u8> = (0..MBELE_LEN as u8)
+        .filter(|&c| opp_side.vichwa[c as usize] >= 1)
+        .collect();
+    let opp_mbele_with_2: Vec<u8> = (0..MBELE_LEN as u8)
+        .filter(|&c| opp_side.vichwa[c as usize] >= 2)
+        .collect();
+    if opp_mbele_with_1.len() == 1 && opp_mbele_with_1[0] == field {
+        return;
+    }
+    if opp_mbele_with_2.len() == 1 && opp_mbele_with_2[0] == field {
+        return;
+    }
+
+    state.kutakatia = Some(Kutakatia {
+        blocked_field: field,
+        blocked_player: opp_idx as u8,
+        turns_remaining: 3,
+    });
+    events.push(MoveEvent::KutakatiaActivated {
+        blocked_player: opp_idx as u8,
+        blocked_field: field,
+    });
+}
+
+/// Raw mtaji-capture computation without kutakatia filtering. Used only
+/// inside `maybe_activate_kutakatia`.
+fn raw_mtaji_captures(own: &Side, opp: &Side) -> Vec<Move> {
+    let mut out = Vec::new();
+    for pit in 0..PITS_PER_SIDE as u8 {
+        let count = own.vichwa[pit as usize];
+        if !(2..=15).contains(&count) {
+            continue;
+        }
+        for &dir in &[Direction::Cw, Direction::Ccw] {
+            let land = landing(pit, dir, count);
+            if (land as usize) >= MBELE_LEN {
+                continue;
+            }
+            if own.vichwa[land as usize] >= 1 && opp.vichwa[land as usize] >= 1 {
+                out.push(Move::Mtaji { pit, dir });
+            }
+        }
+    }
+    out
 }
 
 /// Set nyumba_owned to false if active player's own sow emptied it
@@ -1336,6 +1478,132 @@ mod tests {
                 _ => break,
             }
         }
+    }
+
+    #[test]
+    fn kutakatia_activates_with_unique_destination_and_no_opp_capture() {
+        let mut state = empty_mtaji_state();
+        state.active = 0;
+        // Active (S) has exactly one capture: pit 5 → ccw 3 steps → land 2.
+        state.sides[0].vichwa[5] = 3;
+        state.sides[0].vichwa[2] = 1; // landing has >=1
+        state.sides[1].vichwa[2] = 1; // opp has stones in same col
+        // Opp must also have a non-empty mbele NOT at col 2 to avoid the
+        // "only-≥1 mbele" exclusion.
+        state.sides[1].vichwa[5] = 1;
+        // Opp must have no captures.
+        let opp_caps =
+            raw_mtaji_captures(&state.sides[1], &state.sides[0]);
+        assert!(opp_caps.is_empty(), "test setup: opp shouldn't have captures");
+
+        let mut events = Vec::new();
+        maybe_activate_kutakatia(&mut state, &mut events);
+        let kt = state.kutakatia.expect("should activate");
+        assert_eq!(kt.blocked_field, 2);
+        assert_eq!(kt.blocked_player, 1);
+        assert_eq!(kt.turns_remaining, 3);
+    }
+
+    #[test]
+    fn kutakatia_excluded_when_target_is_opp_only_mbele() {
+        let mut state = empty_mtaji_state();
+        state.active = 0;
+        state.sides[0].vichwa[5] = 3;
+        state.sides[0].vichwa[2] = 1;
+        // Opp only has a mbele kete at col 2 → exclusion fires.
+        state.sides[1].vichwa[2] = 1;
+
+        let mut events = Vec::new();
+        maybe_activate_kutakatia(&mut state, &mut events);
+        assert!(state.kutakatia.is_none());
+    }
+
+    #[test]
+    fn kutakatia_decrements_per_turn_and_clears() {
+        let mut state = empty_mtaji_state();
+        state.kutakatia = Some(Kutakatia {
+            blocked_field: 2,
+            blocked_player: 1,
+            turns_remaining: 1,
+        });
+        state.sides[0].vichwa[3] = 2;
+        // After end_turn, kutakatia 1 → 0 → cleared.
+        let (after, events) = apply(
+            &state,
+            Move::Mtaji {
+                pit: 3,
+                dir: Direction::Cw,
+            },
+        )
+        .unwrap();
+        assert!(after.kutakatia.is_none());
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, MoveEvent::KutakatiaCleared)));
+    }
+
+    #[test]
+    fn kutakatia_blocks_blocked_players_captures() {
+        let mut state = empty_mtaji_state();
+        state.active = 1; // blocked player's turn
+        state.kutakatia = Some(Kutakatia {
+            blocked_field: 2,
+            blocked_player: 1,
+            turns_remaining: 2,
+        });
+        // Set up a normal capture opportunity for player 1.
+        state.sides[1].vichwa[5] = 3; // pit 5, sow ccw 3 → land 2
+        state.sides[1].vichwa[2] = 1;
+        state.sides[0].vichwa[2] = 1;
+        let captures = mtaji_captures(&state);
+        assert!(captures.is_empty(), "blocked player must have no captures");
+    }
+
+    #[test]
+    fn kutakatia_blocker_capture_restricted_to_blocked_field() {
+        let mut state = empty_mtaji_state();
+        state.active = 0; // blocker's turn
+        state.kutakatia = Some(Kutakatia {
+            blocked_field: 2,
+            blocked_player: 1,
+            turns_remaining: 1,
+        });
+        // Set up two possible captures for active.
+        // Capture A: pit 5 ccw 3 → land 2 (matches blocked_field).
+        state.sides[0].vichwa[5] = 3;
+        state.sides[0].vichwa[2] = 1;
+        state.sides[1].vichwa[2] = 1;
+        // Capture B: pit 1 cw 3 → land 4. Not blocked_field, must be filtered.
+        state.sides[0].vichwa[1] = 3;
+        state.sides[0].vichwa[4] = 1;
+        state.sides[1].vichwa[4] = 1;
+        let captures = mtaji_captures(&state);
+        // Only capture A should remain.
+        assert_eq!(
+            captures,
+            vec![Move::Mtaji {
+                pit: 5,
+                dir: Direction::Ccw,
+            }]
+        );
+    }
+
+    #[test]
+    fn kutakatia_blocked_player_cannot_takata_from_blocked_field() {
+        let mut state = empty_mtaji_state();
+        state.active = 1; // blocked player
+        state.kutakatia = Some(Kutakatia {
+            blocked_field: 2,
+            blocked_player: 1,
+            turns_remaining: 2,
+        });
+        // Blocked player has 2 mbele pits with >=2: col 2 (blocked) and col 4.
+        state.sides[1].vichwa[2] = 3;
+        state.sides[1].vichwa[4] = 3;
+        let takatas = mtaji_takata(&state);
+        // Source pit 2 must be excluded.
+        assert!(takatas.iter().all(|m| !matches!(m, Move::Mtaji { pit: 2, .. })));
+        assert!(takatas.iter().any(|m| matches!(m, Move::Mtaji { pit: 4, .. })));
     }
 
     #[test]
