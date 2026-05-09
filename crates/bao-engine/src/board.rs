@@ -142,6 +142,9 @@ pub struct BoardState {
     pub ply: u32,
     pub variant: Variant,
     pub kutakatia: Option<Kutakatia>,
+    /// Set when the game has ended; the value is the winning player index.
+    /// `apply()` rejects further moves once this is `Some`. See RULES.md §9.
+    pub winner: Option<u8>,
 }
 
 impl BoardState {
@@ -191,6 +194,7 @@ impl BoardState {
             ply: 0,
             variant: Variant::Kiswahili,
             kutakatia: None,
+            winner: None,
         }
     }
 
@@ -215,6 +219,7 @@ impl BoardState {
             ply: 0,
             variant: Variant::Kujifunza,
             kutakatia: None,
+            winner: None,
         }
     }
 

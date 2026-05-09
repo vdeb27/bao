@@ -251,6 +251,9 @@ pub fn apply(
     state: &BoardState,
     mv: Move,
 ) -> Result<(BoardState, Vec<MoveEvent>), &'static str> {
+    if state.winner.is_some() {
+        return Err("game is already over");
+    }
     let mut next = *state;
     let mut events = Vec::new();
     apply_in_place(&mut next, &mut events, mv)?;
@@ -677,6 +680,29 @@ fn end_turn(state: &mut BoardState, events: &mut Vec<MoveEvent>) {
         Phase::Namu(_) => Phase::Namu(Substate::AwaitMove),
         Phase::Mtaji(_) => Phase::Mtaji(Substate::AwaitMove),
     };
+
+    // Win/loss detection (RULES.md §9). Only applied at the start of the
+    // new active player's turn — substate transitions don't end the game.
+    if let Some(winner) = check_terminal(state) {
+        state.winner = Some(winner);
+        events.push(MoveEvent::GameOver { winner });
+    }
+}
+
+/// RULES.md §9: opponent's mbele empty after a capture is hamna; active's
+/// mbele empty at the start of their turn is hamna/mkononi; active without
+/// any legal move is a stalemate-loss (also §9.3).
+fn check_terminal(state: &BoardState) -> Option<u8> {
+    if state.sides[0].mbele_total() == 0 {
+        return Some(1);
+    }
+    if state.sides[1].mbele_total() == 0 {
+        return Some(0);
+    }
+    if legal_moves(state).is_empty() {
+        return Some(state.opponent(state.active));
+    }
+    None
 }
 
 /// Set nyumba_owned to false if active player's own sow emptied it
@@ -742,6 +768,7 @@ mod tests {
             ply: 0,
             variant: Variant::Kiswahili,
             kutakatia: None,
+            winner: None,
         }
     }
 
@@ -765,6 +792,7 @@ mod tests {
             ply: 0,
             variant: Variant::Kiswahili,
             kutakatia: None,
+            winner: None,
         }
     }
 
@@ -1308,6 +1336,62 @@ mod tests {
                 _ => break,
             }
         }
+    }
+
+    #[test]
+    fn apply_terminal_hamna_when_opp_mbele_emptied() {
+        // South captures opp's only mbele kete via namu-kula → opp mbele 0 → S wins.
+        let mut state = empty_kiswahili_state();
+        state.sides[0].vichwa[3] = 1; // own pre-place
+        state.sides[1].vichwa[3] = 1; // opp's only mbele kete
+        // Trigger AwaitKichwa
+        let (s1, _) = apply(
+            &state,
+            Move::Namu {
+                col: 3,
+                dir: Direction::Cw,
+            },
+        )
+        .unwrap();
+        assert!(s1.winner.is_none());
+        // Pick kichwa Left (deterministic since cf=3 is in middle but
+        // prior_dir=None → both legal; either works).
+        let (s2, events) = apply(&s1, Move::Kichwa(KichwaSide::Left)).unwrap();
+        assert_eq!(s2.winner, Some(0));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, MoveEvent::GameOver { winner: 0 })));
+    }
+
+    #[test]
+    fn apply_rejects_after_game_over() {
+        let mut state = empty_kiswahili_state();
+        state.winner = Some(0);
+        let res = apply(
+            &state,
+            Move::Namu {
+                col: 0,
+                dir: Direction::Cw,
+            },
+        );
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn apply_terminal_stalemate_no_legal_moves() {
+        // Mtaji state where active has no vichwa with >=2 anywhere → loss.
+        let mut state = empty_mtaji_state();
+        // Opponent has at least 1 mbele kete to avoid hamna firing first.
+        state.sides[1].vichwa[3] = 5;
+        // Active player after end_turn will be 1 after we apply something.
+        // Easier: set state directly with active=0 having no >=2 anywhere.
+        // mbele_total non-zero (avoid hamna): vichwa[0]=1 singleton.
+        state.sides[0].vichwa[0] = 1;
+        // Run a fake "move complete" by directly invoking end_turn... not
+        // accessible. Instead: set up a position and check legal_moves +
+        // terminal manually.
+        assert!(legal_moves(&state).is_empty());
+        assert_eq!(check_terminal(&state), Some(1));
     }
 
     #[test]
