@@ -15,7 +15,8 @@ pub mod variant;
 
 pub use board::{
     BoardState, Direction, Kutakatia, NyumbaState, Phase, Side, Substate, MBELE_LEN, NYUMBA_COL,
-    NYUMBA_FUNCTIONAL_THRESHOLD, NYUMBA_INITIAL_KETE, NYUMA_LEN, PITS_PER_SIDE, TOTAL_KETE,
+    NYUMBA_COL_NORTH, NYUMBA_FUNCTIONAL_THRESHOLD, NYUMBA_INITIAL_KETE, NYUMA_LEN, PITS_PER_SIDE,
+    TOTAL_KETE,
 };
 pub use events::MoveEvent;
 pub use moves::{KichwaSide, Move};
