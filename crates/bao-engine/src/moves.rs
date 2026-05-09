@@ -30,10 +30,11 @@ impl KichwaSide {
 /// the engine validates at apply-time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Move {
-    /// Namu / kunamua: place one kete from ghala into mbele[col]. Direction
-    /// of any subsequent capture-sow is decided by the kichwa selection
-    /// (which may be deterministic or a player choice — see RULES.md §6.3).
-    Namu { col: u8 },
+    /// Namu / kunamua: place one kete from ghala into mbele[col]. If this
+    /// triggers a capture, `dir` is ignored (sow direction comes from the
+    /// kichwa selection); if it's a takata, `dir` is the player-chosen sow
+    /// direction. See RULES.md §3.1, §5.1, §6.2.
+    Namu { col: u8, dir: Direction },
 
     /// Mtaji: take all kete from `pit` and sow in `dir`. The engine
     /// determines whether the move is a capture, a takata, or triggers

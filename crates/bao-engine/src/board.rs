@@ -65,7 +65,13 @@ pub enum Substate {
         capture_field: u8,
         prior_dir: Option<Direction>,
     },
-    AwaitSafari,
+    /// Capture-sow has landed in active player's own functional nyumba; the
+    /// player must decide whether to plunder it ("safari") and continue, or
+    /// stop. `sow_dir` is the direction the capture-sow was traveling when
+    /// it hit the nyumba — needed to resume on go=true. See RULES.md §6.4.
+    AwaitSafari {
+        sow_dir: Direction,
+    },
 }
 
 /// Active kutakatia block, see RULES.md §11.

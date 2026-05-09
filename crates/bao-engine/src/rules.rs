@@ -4,10 +4,16 @@
 //! and apply() come in a follow-up step.
 
 use crate::board::{
-    next_pit, BoardState, Direction, NyumbaState, Phase, Side, Substate, MBELE_LEN, PITS_PER_SIDE,
+    next_pit, BoardState, Direction, NyumbaState, Phase, Side, Substate, MBELE_LEN,
+    NYUMBA_FUNCTIONAL_THRESHOLD, PITS_PER_SIDE,
 };
+use crate::events::MoveEvent;
 use crate::moves::{KichwaSide, Move};
 use crate::variant::Variant;
+
+/// Maximum sow-loop hops; safeguard against any cyclic endelea bug. With at
+/// most 64 kete on the board the legitimate maximum is well under this.
+const SOW_HOP_LIMIT: u32 = 256;
 
 /// Field where a sow of `count` kete starting at `start` and going in `dir`
 /// will drop its last kete. Wraps around the 16-pit ring. See RULES.md §1.3.
@@ -33,7 +39,7 @@ pub fn legal_moves(state: &BoardState) -> Vec<Move> {
             capture_field,
             prior_dir,
         }) => kichwa_legal_moves(capture_field, prior_dir),
-        Phase::Namu(Substate::AwaitSafari) | Phase::Mtaji(Substate::AwaitSafari) => {
+        Phase::Namu(Substate::AwaitSafari { .. }) | Phase::Mtaji(Substate::AwaitSafari { .. }) => {
             vec![Move::Safari { go: true }, Move::Safari { go: false }]
         }
     }
@@ -55,15 +61,31 @@ fn namu_legal_moves(state: &BoardState) -> Vec<Move> {
 }
 
 /// RULES.md §6.2: namu-kula valid at mbele col `c` when own.mbele[c] >= 1
-/// (pre-drop) AND opp.mbele[c] >= 1.
+/// (pre-drop) AND opp.mbele[c] >= 1. Direction is chosen later via kichwa
+/// selection; the emitted `dir` is canonical (Cw) and ignored on apply.
 fn namu_captures(own: &Side, opp: &Side) -> Vec<Move> {
     let mut out = Vec::new();
     for c in 0..MBELE_LEN as u8 {
         if own.vichwa[c as usize] >= 1 && opp.vichwa[c as usize] >= 1 {
-            out.push(Move::Namu { col: c });
+            out.push(Move::Namu {
+                col: c,
+                dir: Direction::Cw,
+            });
         }
     }
     out
+}
+
+/// Push both-direction takata moves for column `c`.
+fn push_takata(out: &mut Vec<Move>, c: u8) {
+    out.push(Move::Namu {
+        col: c,
+        dir: Direction::Cw,
+    });
+    out.push(Move::Namu {
+        col: c,
+        dir: Direction::Ccw,
+    });
 }
 
 /// RULES.md §8.5: three-branch nyumba-conditional non-capture selection.
@@ -74,37 +96,32 @@ fn namu_non_captures(own: &Side, variant: Variant) -> Vec<Move> {
 
     match nyumba_state {
         NyumbaState::Functional => {
-            // Branch 2: any non-empty mbele EXCEPT nyumba; if none such,
-            // the nyumba itself (then tax-rule applies).
             let mut found_other = false;
             for c in 0..MBELE_LEN as u8 {
                 if c == nyumba_col {
                     continue;
                 }
                 if own.vichwa[c as usize] >= 1 {
-                    out.push(Move::Namu { col: c });
+                    push_takata(&mut out, c);
                     found_other = true;
                 }
             }
             if !found_other && own.vichwa[nyumba_col as usize] >= 1 {
-                out.push(Move::Namu { col: nyumba_col });
+                push_takata(&mut out, nyumba_col);
             }
         }
         NyumbaState::Disabled => {
-            // Branch 3: any non-empty mbele, no restriction.
             for c in 0..MBELE_LEN as u8 {
                 if own.vichwa[c as usize] >= 1 {
-                    out.push(Move::Namu { col: c });
+                    push_takata(&mut out, c);
                 }
             }
         }
         NyumbaState::Destroyed => {
-            // Branch 1: prefer mbele with >=2 kete; only fall back to >=1
-            // if no >=2 exists.
             let mut twos = Vec::new();
             for c in 0..MBELE_LEN as u8 {
                 if own.vichwa[c as usize] >= 2 {
-                    twos.push(Move::Namu { col: c });
+                    push_takata(&mut twos, c);
                 }
             }
             if !twos.is_empty() {
@@ -112,7 +129,7 @@ fn namu_non_captures(own: &Side, variant: Variant) -> Vec<Move> {
             }
             for c in 0..MBELE_LEN as u8 {
                 if own.vichwa[c as usize] >= 1 {
-                    out.push(Move::Namu { col: c });
+                    push_takata(&mut out, c);
                 }
             }
         }
@@ -223,6 +240,483 @@ fn kichwa_legal_moves(capture_field: u8, prior_dir: Option<Direction>) -> Vec<Mo
     }
 }
 
+// =================================================================================
+// Move execution
+// =================================================================================
+
+/// Apply a move and return the resulting state and the event stream. Returns
+/// `Err` if the move is illegal in the current substate. Pure: input state is
+/// untouched.
+pub fn apply(
+    state: &BoardState,
+    mv: Move,
+) -> Result<(BoardState, Vec<MoveEvent>), &'static str> {
+    let mut next = *state;
+    let mut events = Vec::new();
+    apply_in_place(&mut next, &mut events, mv)?;
+    Ok((next, events))
+}
+
+fn apply_in_place(
+    state: &mut BoardState,
+    events: &mut Vec<MoveEvent>,
+    mv: Move,
+) -> Result<(), &'static str> {
+    match (state.phase, mv) {
+        (Phase::Namu(Substate::AwaitMove), Move::Namu { col, dir }) => {
+            apply_namu(state, events, col, dir)
+        }
+        (Phase::Mtaji(Substate::AwaitMove), Move::Mtaji { pit, dir }) => {
+            apply_mtaji(state, events, pit, dir)
+        }
+        (
+            Phase::Namu(Substate::AwaitKichwa {
+                capture_field,
+                prior_dir,
+            }),
+            Move::Kichwa(side),
+        )
+        | (
+            Phase::Mtaji(Substate::AwaitKichwa {
+                capture_field,
+                prior_dir,
+            }),
+            Move::Kichwa(side),
+        ) => apply_kichwa(state, events, capture_field, prior_dir, side),
+        (
+            Phase::Namu(Substate::AwaitSafari { sow_dir }),
+            Move::Safari { go },
+        )
+        | (
+            Phase::Mtaji(Substate::AwaitSafari { sow_dir }),
+            Move::Safari { go },
+        ) => apply_safari(state, events, sow_dir, go),
+        _ => Err("illegal move for current phase/substate"),
+    }
+}
+
+// ---------- Namu apply ----------
+
+fn apply_namu(
+    state: &mut BoardState,
+    events: &mut Vec<MoveEvent>,
+    col: u8,
+    dir: Direction,
+) -> Result<(), &'static str> {
+    if (col as usize) >= MBELE_LEN {
+        return Err("namu col out of mbele");
+    }
+    let active = state.active as usize;
+    let opp = state.opponent(state.active) as usize;
+    if state.sides[active].ghala == 0 {
+        return Err("ghala empty in namu");
+    }
+
+    let is_kula =
+        state.sides[active].vichwa[col as usize] >= 1 && state.sides[opp].vichwa[col as usize] >= 1;
+
+    // Place 1 kete from ghala into chosen mbele pit.
+    state.sides[active].ghala -= 1;
+    state.sides[active].vichwa[col as usize] += 1;
+    events.push(MoveEvent::NamuPlace {
+        player: state.active,
+        pit: col,
+    });
+
+    if is_kula {
+        // Stop after placement; player must select kichwa (RULES.md §6.3).
+        events.push(MoveEvent::KichwaSelectionRequired {
+            player: state.active,
+            capture_field: col,
+        });
+        state.phase = Phase::Namu(Substate::AwaitKichwa {
+            capture_field: col,
+            prior_dir: None,
+        });
+        return Ok(());
+    }
+
+    // Non-capture (takata). Apply tax-rule if source is own functional nyumba
+    // (RULES.md §8.4): take only 2 kete instead of full count.
+    let nyumba_col = state.sides[active].nyumba_col;
+    let post_count = state.sides[active].vichwa[col as usize];
+    let was_functional_nyumba = col == nyumba_col
+        && state.sides[active].nyumba_owned
+        && post_count >= NYUMBA_FUNCTIONAL_THRESHOLD;
+
+    let pickup = if was_functional_nyumba {
+        events.push(MoveEvent::Tax {
+            player: state.active,
+            pit: col,
+            taken: 2,
+        });
+        state.sides[active].vichwa[col as usize] -= 2;
+        2
+    } else {
+        let c = state.sides[active].vichwa[col as usize];
+        state.sides[active].vichwa[col as usize] = 0;
+        events.push(MoveEvent::Pickup {
+            player: state.active,
+            pit: col,
+            count: c,
+        });
+        maybe_destroy_own_nyumba(state, active, col, events);
+        c
+    };
+
+    do_takata_sow(state, events, col, dir, pickup)?;
+    end_turn(state, events);
+    Ok(())
+}
+
+// ---------- Mtaji apply ----------
+
+fn apply_mtaji(
+    state: &mut BoardState,
+    events: &mut Vec<MoveEvent>,
+    pit: u8,
+    dir: Direction,
+) -> Result<(), &'static str> {
+    if (pit as usize) >= PITS_PER_SIDE {
+        return Err("mtaji pit out of range");
+    }
+    let active = state.active as usize;
+    let opp = state.opponent(state.active) as usize;
+    let count = state.sides[active].vichwa[pit as usize];
+    if count < 2 {
+        return Err("mtaji source < 2 (no-singleton, RULES.md §12.1)");
+    }
+
+    let is_capture = (2..=15).contains(&count) && {
+        let land = landing(pit, dir, count);
+        (land as usize) < MBELE_LEN
+            && state.sides[active].vichwa[land as usize] >= 1
+            && state.sides[opp].vichwa[land as usize] >= 1
+    };
+
+    // Pick up source.
+    state.sides[active].vichwa[pit as usize] = 0;
+    events.push(MoveEvent::Pickup {
+        player: state.active,
+        pit,
+        count,
+    });
+    maybe_destroy_own_nyumba(state, active, pit, events);
+
+    if is_capture {
+        // Sow `count` kete from `pit` in `dir`, then await kichwa selection.
+        let mut hand = count;
+        let mut pos = pit;
+        let mut hops = 0u32;
+        while hand > 0 {
+            pos = next_pit(pos, dir);
+            state.sides[active].vichwa[pos as usize] += 1;
+            events.push(MoveEvent::Sow {
+                player: state.active,
+                pit: pos,
+            });
+            hand -= 1;
+            hops += 1;
+            if hops > SOW_HOP_LIMIT {
+                return Err("mtaji-capture sow exceeded hop limit");
+            }
+        }
+        events.push(MoveEvent::KichwaSelectionRequired {
+            player: state.active,
+            capture_field: pos,
+        });
+        state.phase = Phase::Mtaji(Substate::AwaitKichwa {
+            capture_field: pos,
+            prior_dir: Some(dir),
+        });
+        return Ok(());
+    }
+
+    // Mtaji-takata.
+    do_takata_sow(state, events, pit, dir, count)?;
+    end_turn(state, events);
+    Ok(())
+}
+
+// ---------- Kichwa apply (capture-sow start) ----------
+
+fn apply_kichwa(
+    state: &mut BoardState,
+    events: &mut Vec<MoveEvent>,
+    capture_field: u8,
+    prior_dir: Option<Direction>,
+    side: KichwaSide,
+) -> Result<(), &'static str> {
+    let legal = kichwa_legal_moves(capture_field, prior_dir);
+    if !legal.contains(&Move::Kichwa(side)) {
+        return Err("illegal kichwa selection");
+    }
+
+    let opp = state.opponent(state.active) as usize;
+
+    // Capture: empty opponent's mbele[capture_field].
+    let captured = state.sides[opp].vichwa[capture_field as usize];
+    if captured == 0 {
+        return Err("kichwa: opponent capture-field is empty");
+    }
+    state.sides[opp].vichwa[capture_field as usize] = 0;
+    events.push(MoveEvent::Capture {
+        from_player: state.opponent(state.active),
+        from_pit: capture_field,
+        count: captured,
+    });
+    maybe_destroy_opp_nyumba(state, opp, capture_field, events);
+
+    // Sow from kichwa in the implied direction. Per geziefer, the start
+    // position is one step before kichwa so the first loop iteration drops
+    // into kichwa itself.
+    let sow_dir = side.sow_direction();
+    let kichwa = side.pit();
+    let start = next_pit(kichwa, sow_dir.reverse());
+
+    do_capture_sow(state, events, start, sow_dir, captured)
+}
+
+// ---------- Safari apply ----------
+
+fn apply_safari(
+    state: &mut BoardState,
+    events: &mut Vec<MoveEvent>,
+    sow_dir: Direction,
+    go: bool,
+) -> Result<(), &'static str> {
+    if !go {
+        end_turn(state, events);
+        return Ok(());
+    }
+
+    let active = state.active as usize;
+    let nyumba = state.sides[active].nyumba_col;
+    let count = state.sides[active].vichwa[nyumba as usize];
+    state.sides[active].vichwa[nyumba as usize] = 0;
+    state.sides[active].nyumba_owned = false;
+    events.push(MoveEvent::Pickup {
+        player: state.active,
+        pit: nyumba,
+        count,
+    });
+    events.push(MoveEvent::NyumbaDestroyed {
+        player: state.active,
+    });
+
+    do_capture_sow(state, events, nyumba, sow_dir, count)
+}
+
+// ---------- Sow loops ----------
+
+/// Takata-sow with endelea (RULES.md §5, §7). No capture detection: per §4
+/// "first-lap-determines-captures" a sow that started without a capture
+/// trigger never captures. Stops on empty landing or when reaching own
+/// functional nyumba (which would otherwise endelea).
+fn do_takata_sow(
+    state: &mut BoardState,
+    events: &mut Vec<MoveEvent>,
+    source: u8,
+    dir: Direction,
+    initial_hand: u8,
+) -> Result<(), &'static str> {
+    let active = state.active as usize;
+    let mut pos = source;
+    let mut hand = initial_hand;
+    let mut hops = 0u32;
+
+    loop {
+        while hand > 0 {
+            pos = next_pit(pos, dir);
+            state.sides[active].vichwa[pos as usize] += 1;
+            events.push(MoveEvent::Sow {
+                player: state.active,
+                pit: pos,
+            });
+            hand -= 1;
+            hops += 1;
+            if hops > SOW_HOP_LIMIT {
+                return Err("takata-sow exceeded hop limit");
+            }
+        }
+
+        let landed = state.sides[active].vichwa[pos as usize];
+        if landed <= 1 {
+            // Empty landing → end of takata.
+            return Ok(());
+        }
+
+        // Endelea triggers. RULES.md §5.2: stop on own functional nyumba.
+        let is_own_func_nyumba = pos == state.sides[active].nyumba_col
+            && state.sides[active].nyumba_owned
+            && landed >= NYUMBA_FUNCTIONAL_THRESHOLD;
+        if is_own_func_nyumba {
+            return Ok(());
+        }
+
+        // Pickup and continue (RULES.md §7).
+        hand = landed;
+        state.sides[active].vichwa[pos as usize] = 0;
+        events.push(MoveEvent::Pickup {
+            player: state.active,
+            pit: pos,
+            count: hand,
+        });
+        maybe_destroy_own_nyumba(state, active, pos, events);
+    }
+}
+
+/// Capture-sow with endelea (RULES.md §5, §6, §7). Mid-sow may trigger
+/// another capture (transition to AwaitKichwa) or safari (AwaitSafari).
+fn do_capture_sow(
+    state: &mut BoardState,
+    events: &mut Vec<MoveEvent>,
+    start: u8,
+    dir: Direction,
+    initial_hand: u8,
+) -> Result<(), &'static str> {
+    let active = state.active as usize;
+    let opp = state.opponent(state.active) as usize;
+    let mut pos = start;
+    let mut hand = initial_hand;
+    let mut hops = 0u32;
+
+    loop {
+        while hand > 0 {
+            pos = next_pit(pos, dir);
+            state.sides[active].vichwa[pos as usize] += 1;
+            events.push(MoveEvent::Sow {
+                player: state.active,
+                pit: pos,
+            });
+            hand -= 1;
+            hops += 1;
+            if hops > SOW_HOP_LIMIT {
+                return Err("capture-sow exceeded hop limit");
+            }
+        }
+
+        let landed = state.sides[active].vichwa[pos as usize];
+
+        if landed <= 1 {
+            // Empty landing → done.
+            end_turn(state, events);
+            return Ok(());
+        }
+
+        // Mid-sow capture trigger (RULES.md §6.1 applied to endelea-laps).
+        if (pos as usize) < MBELE_LEN
+            && landed >= 2
+            && state.sides[opp].vichwa[pos as usize] >= 1
+        {
+            events.push(MoveEvent::KichwaSelectionRequired {
+                player: state.active,
+                capture_field: pos,
+            });
+            state.phase = match state.phase {
+                Phase::Namu(_) => Phase::Namu(Substate::AwaitKichwa {
+                    capture_field: pos,
+                    prior_dir: Some(dir),
+                }),
+                Phase::Mtaji(_) => Phase::Mtaji(Substate::AwaitKichwa {
+                    capture_field: pos,
+                    prior_dir: Some(dir),
+                }),
+            };
+            return Ok(());
+        }
+
+        // Safari trigger (RULES.md §6.4).
+        let is_own_func_nyumba = pos == state.sides[active].nyumba_col
+            && state.sides[active].nyumba_owned
+            && landed >= NYUMBA_FUNCTIONAL_THRESHOLD;
+        if is_own_func_nyumba {
+            events.push(MoveEvent::SafariTriggered {
+                player: state.active,
+            });
+            state.phase = match state.phase {
+                Phase::Namu(_) => Phase::Namu(Substate::AwaitSafari { sow_dir: dir }),
+                Phase::Mtaji(_) => Phase::Mtaji(Substate::AwaitSafari { sow_dir: dir }),
+            };
+            return Ok(());
+        }
+
+        // Endelea: pickup and continue.
+        hand = landed;
+        state.sides[active].vichwa[pos as usize] = 0;
+        events.push(MoveEvent::Pickup {
+            player: state.active,
+            pit: pos,
+            count: hand,
+        });
+        maybe_destroy_own_nyumba(state, active, pos, events);
+    }
+}
+
+// ---------- Turn / phase administration ----------
+
+fn end_turn(state: &mut BoardState, events: &mut Vec<MoveEvent>) {
+    state.active = 1 - state.active;
+    state.ply += 1;
+
+    // TODO RULES.md §11: decrement kutakatia counter and clear if 0.
+
+    // Phase shift namu → mtaji (Kiswahili) when both ghalas are empty
+    // (RULES.md §3.3).
+    if matches!(state.phase, Phase::Namu(_))
+        && state.variant == Variant::Kiswahili
+        && state.sides[0].ghala == 0
+        && state.sides[1].ghala == 0
+    {
+        state.phase = Phase::Mtaji(Substate::AwaitMove);
+        events.push(MoveEvent::PhaseShift);
+        return;
+    }
+
+    state.phase = match state.phase {
+        Phase::Namu(_) => Phase::Namu(Substate::AwaitMove),
+        Phase::Mtaji(_) => Phase::Mtaji(Substate::AwaitMove),
+    };
+}
+
+/// Set nyumba_owned to false if active player's own sow emptied it
+/// (RULES.md §8.3 trigger (a)/(c)).
+fn maybe_destroy_own_nyumba(
+    state: &mut BoardState,
+    side_idx: usize,
+    pit: u8,
+    events: &mut Vec<MoveEvent>,
+) {
+    if pit == state.sides[side_idx].nyumba_col
+        && state.sides[side_idx].nyumba_owned
+        && state.sides[side_idx].vichwa[pit as usize] == 0
+    {
+        state.sides[side_idx].nyumba_owned = false;
+        events.push(MoveEvent::NyumbaDestroyed {
+            player: side_idx as u8,
+        });
+    }
+}
+
+/// Set opponent's nyumba_owned to false if a capture emptied it
+/// (RULES.md §8.3 trigger (b)).
+fn maybe_destroy_opp_nyumba(
+    state: &mut BoardState,
+    opp_idx: usize,
+    pit: u8,
+    events: &mut Vec<MoveEvent>,
+) {
+    if pit == state.sides[opp_idx].nyumba_col
+        && state.sides[opp_idx].nyumba_owned
+        && state.sides[opp_idx].vichwa[pit as usize] == 0
+    {
+        state.sides[opp_idx].nyumba_owned = false;
+        events.push(MoveEvent::NyumbaDestroyed {
+            player: opp_idx as u8,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,12 +798,9 @@ mod tests {
         for m in &moves {
             assert!(matches!(m, Move::Namu { .. }), "got {:?}", m);
         }
-        // Functional nyumba present → branch 2 of §8.5 → cols 5, 6 (non-empty
-        // mbele excluding nyumba at col 4).
-        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 5 })));
-        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 6 })));
-        // Nyumba (col 4) excluded because other non-empty mbele exist.
-        assert!(!moves.iter().any(|m| matches!(m, Move::Namu { col: 4 })));
+        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 5, .. })));
+        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 6, .. })));
+        assert!(!moves.iter().any(|m| matches!(m, Move::Namu { col: 4, .. })));
     }
 
     #[test]
@@ -319,9 +810,14 @@ mod tests {
         state.sides[1].vichwa[3] = 1; // opp mbele same col → capture available
         state.sides[0].vichwa[5] = 4; // some non-capture filler
         let moves = legal_moves(&state);
-        // Mandatory-kula → only capture moves.
         assert_eq!(moves.len(), 1);
-        assert_eq!(moves[0], Move::Namu { col: 3 });
+        assert_eq!(
+            moves[0],
+            Move::Namu {
+                col: 3,
+                dir: Direction::Cw,
+            }
+        );
     }
 
     #[test]
@@ -332,10 +828,10 @@ mod tests {
         state.sides[0].vichwa[1] = 1;
         // No opp kete → no captures.
         let moves = legal_moves(&state);
-        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 1 })));
+        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 1, .. })));
         assert!(moves
             .iter()
-            .any(|m| matches!(m, Move::Namu { col: c } if *c == NYUMBA_COL as u8)));
+            .any(|m| matches!(m, Move::Namu { col: c, .. } if *c == NYUMBA_COL as u8)));
     }
 
     #[test]
@@ -345,8 +841,9 @@ mod tests {
         state.sides[0].vichwa[1] = 2;
         state.sides[0].vichwa[3] = 1;
         let moves = legal_moves(&state);
-        assert_eq!(moves.len(), 1);
-        assert_eq!(moves[0], Move::Namu { col: 1 });
+        // Two directions per col, only col 1 (>=2) allowed.
+        assert_eq!(moves.len(), 2);
+        assert!(moves.iter().all(|m| matches!(m, Move::Namu { col: 1, .. })));
     }
 
     #[test]
@@ -356,7 +853,8 @@ mod tests {
         state.sides[0].vichwa[2] = 1;
         state.sides[0].vichwa[5] = 1;
         let moves = legal_moves(&state);
-        assert_eq!(moves.len(), 2);
+        // 2 cols × 2 dirs = 4.
+        assert_eq!(moves.len(), 4);
     }
 
     #[test]
@@ -364,8 +862,10 @@ mod tests {
         let mut state = empty_kiswahili_state();
         state.sides[0].vichwa[NYUMBA_COL] = 6; // functional, only filled mbele
         let moves = legal_moves(&state);
-        assert_eq!(moves.len(), 1);
-        assert_eq!(moves[0], Move::Namu { col: NYUMBA_COL as u8 });
+        assert_eq!(moves.len(), 2);
+        assert!(moves
+            .iter()
+            .all(|m| matches!(m, Move::Namu { col, .. } if *col == NYUMBA_COL as u8)));
     }
 
     // ---------- Mtaji legal moves ----------
@@ -538,10 +1038,298 @@ mod tests {
         assert!(moves.contains(&Move::Kichwa(KichwaSide::Right)));
     }
 
+    // =================================================================
+    // apply() tests
+    // =================================================================
+
+    #[test]
+    fn apply_namu_takata_basic_sow() {
+        let mut state = empty_kiswahili_state();
+        // South: only col 2 has 1 kete in mbele; nyumba destroyed → branch 1
+        // (>=1 fallback).
+        state.sides[0].nyumba_owned = false;
+        state.sides[0].vichwa[2] = 1;
+        // After namu place: vichwa[2]=2. Pickup all → sow Cw: drop at 3, 4.
+        let mv = Move::Namu {
+            col: 2,
+            dir: Direction::Cw,
+        };
+        let (after, _events) = apply(&state, mv).unwrap();
+        assert_eq!(after.sides[0].vichwa[2], 0);
+        assert_eq!(after.sides[0].vichwa[3], 1);
+        assert_eq!(after.sides[0].vichwa[4], 1);
+        assert_eq!(after.sides[0].ghala, 31);
+        // End-turn flipped active.
+        assert_eq!(after.active, 1);
+        assert!(matches!(after.phase, Phase::Namu(Substate::AwaitMove)));
+    }
+
+    #[test]
+    fn apply_namu_kula_awaits_kichwa() {
+        let mut state = empty_kiswahili_state();
+        state.sides[0].vichwa[3] = 1;
+        state.sides[1].vichwa[3] = 1;
+        let mv = Move::Namu {
+            col: 3,
+            dir: Direction::Cw,
+        };
+        let (after, _) = apply(&state, mv).unwrap();
+        // Placement happened.
+        assert_eq!(after.sides[0].vichwa[3], 2);
+        assert_eq!(after.sides[0].ghala, 31);
+        // Opponent untouched.
+        assert_eq!(after.sides[1].vichwa[3], 1);
+        // Awaiting kichwa selection; active player still 0.
+        assert_eq!(after.active, 0);
+        assert!(matches!(
+            after.phase,
+            Phase::Namu(Substate::AwaitKichwa {
+                capture_field: 3,
+                prior_dir: None,
+            })
+        ));
+    }
+
+    #[test]
+    fn apply_kichwa_executes_capture_and_sow() {
+        // Reproduce a namu-kula then kichwa: own col 3 has 1 (post-place 2),
+        // opp col 3 has 4 → capture 4. Kichwa Left (cw from pit 0).
+        let mut state = empty_kiswahili_state();
+        state.sides[0].vichwa[3] = 2; // post-place state simulated
+        state.sides[1].vichwa[3] = 4;
+        state.phase = Phase::Namu(Substate::AwaitKichwa {
+            capture_field: 3,
+            prior_dir: None,
+        });
+        let mv = Move::Kichwa(KichwaSide::Left);
+        let (after, _) = apply(&state, mv).unwrap();
+        // Opponent's col 3 emptied.
+        assert_eq!(after.sides[1].vichwa[3], 0);
+        // 4 kete sown clockwise from kichwa pit 0: drops at 0, 1, 2, 3.
+        // Pre-sow our pits: 0=0,1=0,2=0,3=2. After 4 drops: 0=1,1=1,2=1,3=3.
+        // Then post-final-drop at pit 3, count=3 → endelea! Pickup 3, sow
+        // from 3 cw: drops at 4,5,6. Pre 4=0,5=0,6=0 → after 4=1,5=1,6=1.
+        // Final landing at pit 6, count=1 → empty landing → end.
+        assert_eq!(after.sides[0].vichwa[0], 1);
+        assert_eq!(after.sides[0].vichwa[1], 1);
+        assert_eq!(after.sides[0].vichwa[2], 1);
+        assert_eq!(after.sides[0].vichwa[3], 0);
+        assert_eq!(after.sides[0].vichwa[4], 1);
+        assert_eq!(after.sides[0].vichwa[5], 1);
+        assert_eq!(after.sides[0].vichwa[6], 1);
+        // Turn flipped.
+        assert_eq!(after.active, 1);
+    }
+
+    #[test]
+    fn apply_mtaji_takata_sow() {
+        let mut state = empty_mtaji_state();
+        state.sides[0].vichwa[2] = 3;
+        // Sow cw from 2: drops at 3,4,5. No capture (opp empty), no endelea.
+        let (after, _) = apply(
+            &state,
+            Move::Mtaji {
+                pit: 2,
+                dir: Direction::Cw,
+            },
+        )
+        .unwrap();
+        assert_eq!(after.sides[0].vichwa[2], 0);
+        assert_eq!(after.sides[0].vichwa[3], 1);
+        assert_eq!(after.sides[0].vichwa[4], 1);
+        assert_eq!(after.sides[0].vichwa[5], 1);
+        assert_eq!(after.active, 1);
+    }
+
+    #[test]
+    fn apply_mtaji_capture_awaits_kichwa() {
+        let mut state = empty_mtaji_state();
+        // Pit 5 has 3 kete; sow ccw: 4,3,2. Land=2, own=1, opp=1 → capture.
+        state.sides[0].vichwa[5] = 3;
+        state.sides[0].vichwa[2] = 1;
+        state.sides[1].vichwa[2] = 1;
+        let (after, _) = apply(
+            &state,
+            Move::Mtaji {
+                pit: 5,
+                dir: Direction::Ccw,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            after.phase,
+            Phase::Mtaji(Substate::AwaitKichwa {
+                capture_field: 2,
+                prior_dir: Some(Direction::Ccw),
+            })
+        ));
+        // Sow happened: own pit 5=0, pits 4,3,2 each +1.
+        assert_eq!(after.sides[0].vichwa[5], 0);
+        assert_eq!(after.sides[0].vichwa[4], 1);
+        assert_eq!(after.sides[0].vichwa[3], 1);
+        assert_eq!(after.sides[0].vichwa[2], 2);
+        // Opponent untouched until kichwa applied.
+        assert_eq!(after.sides[1].vichwa[2], 1);
+        assert_eq!(after.active, 0);
+    }
+
+    #[test]
+    fn apply_namu_tax_from_functional_nyumba() {
+        let mut state = empty_kiswahili_state();
+        // South nyumba (idx 4) has 6 kete (functional). All other mbele empty
+        // → §8.5 branch 2 fallback: takata from nyumba is the only legal move.
+        state.sides[0].vichwa[4] = 6;
+        // Apply namu place at nyumba_col 4 with dir Cw. Post-place=7.
+        // Tax: take 2 (not 7). Sow cw 2 from idx 4 → drops at 5, 6.
+        let (after, _) = apply(
+            &state,
+            Move::Namu {
+                col: 4,
+                dir: Direction::Cw,
+            },
+        )
+        .unwrap();
+        // Nyumba had 6, +1 placement = 7, -2 tax = 5.
+        assert_eq!(after.sides[0].vichwa[4], 5);
+        assert_eq!(after.sides[0].vichwa[5], 1);
+        assert_eq!(after.sides[0].vichwa[6], 1);
+        // Nyumba still owned (tax never destroys).
+        assert!(after.sides[0].nyumba_owned);
+    }
+
+    #[test]
+    fn apply_phase_shift_when_both_ghalas_empty() {
+        let mut state = empty_kiswahili_state();
+        state.sides[0].ghala = 1;
+        state.sides[1].ghala = 0;
+        state.sides[0].nyumba_owned = false;
+        state.sides[0].vichwa[2] = 1;
+        // Kunamua: place from ghala (1→0). Both ghalas now 0 → phase shift.
+        let (after, events) = apply(
+            &state,
+            Move::Namu {
+                col: 2,
+                dir: Direction::Cw,
+            },
+        )
+        .unwrap();
+        assert_eq!(after.sides[0].ghala, 0);
+        assert!(matches!(after.phase, Phase::Mtaji(Substate::AwaitMove)));
+        assert!(events.iter().any(|e| matches!(e, MoveEvent::PhaseShift)));
+    }
+
+    #[test]
+    fn apply_mtaji_takata_destroys_own_nyumba() {
+        let mut state = empty_mtaji_state();
+        // Set up an owned nyumba at South.nyumba_col=4, with 2 kete.
+        state.sides[0].nyumba_owned = true;
+        state.sides[0].vichwa[NYUMBA_COL] = 2;
+        // Source = nyumba; takata-sow empties it → destroyed.
+        let (after, events) = apply(
+            &state,
+            Move::Mtaji {
+                pit: NYUMBA_COL as u8,
+                dir: Direction::Cw,
+            },
+        )
+        .unwrap();
+        assert!(!after.sides[0].nyumba_owned);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, MoveEvent::NyumbaDestroyed { .. })));
+    }
+
+    #[test]
+    fn apply_safari_stop_ends_turn() {
+        let mut state = empty_mtaji_state();
+        state.sides[0].nyumba_owned = true;
+        state.sides[0].vichwa[NYUMBA_COL] = 6;
+        state.phase = Phase::Mtaji(Substate::AwaitSafari {
+            sow_dir: Direction::Cw,
+        });
+        let (after, _) = apply(&state, Move::Safari { go: false }).unwrap();
+        assert_eq!(after.active, 1);
+        assert!(after.sides[0].nyumba_owned);
+        assert_eq!(after.sides[0].vichwa[NYUMBA_COL], 6);
+        assert!(matches!(after.phase, Phase::Mtaji(Substate::AwaitMove)));
+    }
+
+    #[test]
+    fn apply_safari_go_destroys_nyumba_and_continues() {
+        let mut state = empty_mtaji_state();
+        state.sides[0].nyumba_owned = true;
+        state.sides[0].vichwa[NYUMBA_COL] = 6;
+        state.phase = Phase::Mtaji(Substate::AwaitSafari {
+            sow_dir: Direction::Cw,
+        });
+        let (after, events) = apply(&state, Move::Safari { go: true }).unwrap();
+        assert!(!after.sides[0].nyumba_owned);
+        assert_eq!(after.sides[0].vichwa[NYUMBA_COL], 0);
+        // 6 kete sown cw from idx 4: drops at 5,6,7,8,9,10.
+        assert_eq!(after.sides[0].vichwa[5], 1);
+        assert_eq!(after.sides[0].vichwa[10], 1);
+        // Nyumba destroyed event emitted.
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, MoveEvent::NyumbaDestroyed { .. })));
+    }
+
+    #[test]
+    fn apply_total_kete_invariant() {
+        // Run a few moves on a fresh Kiswahili board; check 64-kete invariant.
+        let mut state = BoardState::new(Variant::Kiswahili);
+        for _ in 0..10 {
+            let moves = legal_moves(&state);
+            if moves.is_empty() {
+                break;
+            }
+            let m = moves[0];
+            // Skip if it triggers a substate (we'd need to follow up); just
+            // pick a move type that always completes in one apply.
+            match m {
+                Move::Namu { .. } | Move::Mtaji { .. } => {
+                    if let Ok((next, _)) = apply(&state, m) {
+                        // Substates (kichwa/safari) leave active player same;
+                        // we only count atomic transitions here.
+                        if !matches!(
+                            next.phase,
+                            Phase::Namu(Substate::AwaitKichwa { .. })
+                                | Phase::Mtaji(Substate::AwaitKichwa { .. })
+                                | Phase::Namu(Substate::AwaitSafari { .. })
+                                | Phase::Mtaji(Substate::AwaitSafari { .. })
+                        ) {
+                            assert_eq!(next.total_kete(), 64);
+                            state = next;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                _ => break,
+            }
+        }
+    }
+
+    #[test]
+    fn apply_rejects_move_in_wrong_substate() {
+        let state = BoardState::new(Variant::Kiswahili);
+        // Phase = Namu(AwaitMove). A Move::Mtaji is illegal here.
+        let err = apply(
+            &state,
+            Move::Mtaji {
+                pit: 5,
+                dir: Direction::Cw,
+            },
+        );
+        assert!(err.is_err());
+    }
+
     #[test]
     fn await_safari_offers_both() {
         let mut state = empty_mtaji_state();
-        state.phase = Phase::Mtaji(Substate::AwaitSafari);
+        state.phase = Phase::Mtaji(Substate::AwaitSafari {
+            sow_dir: Direction::Cw,
+        });
         let moves = legal_moves(&state);
         assert_eq!(moves.len(), 2);
         assert!(moves.contains(&Move::Safari { go: true }));

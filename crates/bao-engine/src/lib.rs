@@ -13,6 +13,7 @@ pub mod notation;
 pub mod rules;
 pub mod variant;
 
+pub use rules::{apply, legal_moves};
 pub use board::{
     BoardState, Direction, Kutakatia, NyumbaState, Phase, Side, Substate, MBELE_LEN, NYUMBA_COL,
     NYUMBA_COL_NORTH, NYUMBA_FUNCTIONAL_THRESHOLD, NYUMBA_INITIAL_KETE, NYUMA_LEN, PITS_PER_SIDE,
