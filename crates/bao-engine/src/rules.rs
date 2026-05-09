@@ -11,9 +11,10 @@ use crate::events::MoveEvent;
 use crate::moves::{KichwaSide, Move};
 use crate::variant::Variant;
 
-/// Maximum sow-loop hops; safeguard against any cyclic endelea bug. With at
-/// most 64 kete on the board the legitimate maximum is well under this.
-const SOW_HOP_LIMIT: u32 = 256;
+/// Geziefer's 12-rounds-zombie cap (RULES.md §9.4). When a sow exceeds this
+/// many hops, the active player is declared "zombie" and loses. 12 full
+/// rounds × 16 pits = 192 hops.
+const ZOMBIE_HOP_LIMIT: u32 = 192;
 
 /// Field where a sow of `count` kete starting at `start` and going in `dir`
 /// will drop its last kete. Wraps around the 16-pit ring. See RULES.md §1.3.
@@ -438,9 +439,10 @@ fn apply_mtaji(
 
     if is_capture {
         // Sow `count` kete from `pit` in `dir`, then await kichwa selection.
+        // count <= 15 so the zombie cap is unreachable here; the inline loop
+        // is intentionally simpler than do_capture_sow.
         let mut hand = count;
         let mut pos = pit;
-        let mut hops = 0u32;
         while hand > 0 {
             pos = next_pit(pos, dir);
             state.sides[active].vichwa[pos as usize] += 1;
@@ -449,10 +451,6 @@ fn apply_mtaji(
                 pit: pos,
             });
             hand -= 1;
-            hops += 1;
-            if hops > SOW_HOP_LIMIT {
-                return Err("mtaji-capture sow exceeded hop limit");
-            }
         }
         events.push(MoveEvent::KichwaSelectionRequired {
             player: state.active,
@@ -569,9 +567,12 @@ fn do_takata_sow(
             });
             hand -= 1;
             hops += 1;
-            if hops > SOW_HOP_LIMIT {
-                return Err("takata-sow exceeded hop limit");
-            }
+        }
+        // Zombie cap is checked between full laps — inner-loop exits with
+        // hand == 0 so the kete invariant is preserved on early return.
+        if hops > ZOMBIE_HOP_LIMIT {
+            zombie_loss(state, events);
+            return Ok(());
         }
 
         let landed = state.sides[active].vichwa[pos as usize];
@@ -625,9 +626,10 @@ fn do_capture_sow(
             });
             hand -= 1;
             hops += 1;
-            if hops > SOW_HOP_LIMIT {
-                return Err("capture-sow exceeded hop limit");
-            }
+        }
+        if hops > ZOMBIE_HOP_LIMIT {
+            zombie_loss(state, events);
+            return Ok(());
         }
 
         let landed = state.sides[active].vichwa[pos as usize];
@@ -742,6 +744,14 @@ fn check_terminal(state: &BoardState) -> Option<u8> {
         return Some(state.opponent(state.active));
     }
     None
+}
+
+/// Active player is declared "zombie" (RULES.md §9.4) — sow exceeded the
+/// 12-rounds-of-the-board cap. They lose.
+fn zombie_loss(state: &mut BoardState, events: &mut Vec<MoveEvent>) {
+    let winner = state.opponent(state.active);
+    state.winner = Some(winner);
+    events.push(MoveEvent::GameOver { winner });
 }
 
 /// RULES.md §11 (kutakatia activation). Run after a mtaji-takata move,
@@ -1674,6 +1684,81 @@ mod tests {
             },
         );
         assert!(err.is_err());
+    }
+
+    /// Tiny xorshift64 PRNG so the self-play test is deterministic across
+    /// runs and platforms. Not cryptographically anything.
+    struct Rng(u64);
+    impl Rng {
+        fn new(seed: u64) -> Self {
+            Self(if seed == 0 { 0x123456789abcdef0 } else { seed })
+        }
+        fn next_u64(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+        fn pick<T: Copy>(&mut self, items: &[T]) -> T {
+            items[(self.next_u64() as usize) % items.len()]
+        }
+    }
+
+    fn random_self_play(variant: Variant, seed: u64, max_plies: u32) {
+        let mut rng = Rng::new(seed);
+        let mut state = BoardState::new(variant);
+        let mut applied = 0u32;
+        while applied < max_plies {
+            let moves = legal_moves(&state);
+            if moves.is_empty() {
+                // Either a finished game (winner set) or a freshly entered
+                // terminal state. Both must be reflected in winner.
+                assert!(
+                    state.winner.is_some(),
+                    "legal_moves empty but winner unset; state={:?}",
+                    state
+                );
+                return;
+            }
+            let m = rng.pick(&moves);
+            let (next, _events) = apply(&state, m).unwrap_or_else(|e| {
+                panic!("apply failed for {:?} on state {:?}: {}", m, state, e)
+            });
+            // Only check kete invariant once we're back at AwaitMove (no
+            // pending substate), since intermediate substates have valid
+            // intermediate counts after a partial sow.
+            assert_eq!(
+                next.total_kete(),
+                64,
+                "total kete invariant broken after applying {:?}",
+                m
+            );
+            // Winner monotonicity: once set, it never unsets.
+            if state.winner.is_some() {
+                assert_eq!(next.winner, state.winner);
+            }
+            state = next;
+            applied += 1;
+            if state.winner.is_some() {
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn random_self_play_kiswahili_seeds() {
+        for seed in 1..32u64 {
+            random_self_play(Variant::Kiswahili, seed, 400);
+        }
+    }
+
+    #[test]
+    fn random_self_play_kujifunza_seeds() {
+        for seed in 1..32u64 {
+            random_self_play(Variant::Kujifunza, seed, 400);
+        }
     }
 
     #[test]
