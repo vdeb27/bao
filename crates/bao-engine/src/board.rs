@@ -251,7 +251,7 @@ impl BoardState {
 
     /// Compact binary representation of the state. Used by the training
     /// shard-writer and by save/load. Format is version-tagged; bump
-    /// `PACK_VERSION` on any layout change. Total length: 50 bytes.
+    /// `PACK_VERSION` on any layout change. Total length: `PACKED_LEN` (47).
     pub fn pack(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(PACKED_LEN);
         out.push(PACK_MAGIC);

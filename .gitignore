@@ -23,6 +23,7 @@ ui/.vite/
 
 # WASM build output
 bindings/wasm/pkg/
+bindings/wasm/pkg-node/
 
 # ELO registry (server-side authoritative; data/elo.json is exported)
 **/registry.db
