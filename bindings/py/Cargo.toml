@@ -13,3 +13,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 bao-engine = { workspace = true }
 pyo3 = { version = "0.22", features = ["extension-module"] }
+serde_json = { workspace = true }

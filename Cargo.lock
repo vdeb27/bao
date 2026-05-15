@@ -23,6 +23,7 @@ version = "0.0.1"
 dependencies = [
  "bao-engine",
  "pyo3",
+ "serde_json",
 ]
 
 [[package]]
@@ -32,6 +33,7 @@ dependencies = [
  "bao-engine",
  "serde",
  "serde-wasm-bindgen",
+ "serde_json",
  "wasm-bindgen",
 ]
 

@@ -15,6 +15,7 @@ bao-engine = { workspace = true }
 # Pin to versions compatible with system rustc 1.75.0; bump together when toolchain advances.
 wasm-bindgen = "=0.2.93"
 serde = { workspace = true }
+serde_json = { workspace = true }
 serde-wasm-bindgen = "=0.6.5"
 
 [features]
