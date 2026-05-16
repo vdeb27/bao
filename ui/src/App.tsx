@@ -3,13 +3,17 @@ import { Board, type DirectionPick } from "./components/Board";
 import { StatusBar } from "./components/StatusBar";
 import { SubstatePrompt } from "./components/SubstatePrompt";
 import { engineVersion, initEngine, type Move } from "./engine";
+import { useAnimationDriver } from "./hooks/useAnimationDriver";
 import { useGameStore } from "./store/gameStore";
 import "./styles/app.css";
 
 export function App() {
   const [engineReady, setEngineReady] = useState(false);
   const [ambiguous, setAmbiguous] = useState<DirectionPick | null>(null);
-  const { state, view, moves, error, startNew, play } = useGameStore();
+  const { state, view, display, moves, focus, pending, error, startNew, play } =
+    useGameStore();
+
+  useAnimationDriver();
 
   useEffect(() => {
     initEngine()
@@ -20,13 +24,15 @@ export function App() {
       .catch((e) => console.error("engine init failed", e));
   }, []);
 
-  if (!engineReady || !state || !view) {
+  if (!engineReady || !state || !view || !display) {
     return (
       <main className="bao-loading">
         <p>Engine laden…</p>
       </main>
     );
   }
+
+  const animating = pending !== null;
 
   const handlePlay = (m: Move) => {
     setAmbiguous(null);
@@ -36,7 +42,7 @@ export function App() {
   return (
     <main className="bao-app">
       <StatusBar
-        view={view}
+        view={display}
         error={error}
         onNewGame={(v) => {
           setAmbiguous(null);
@@ -45,13 +51,17 @@ export function App() {
       />
       <div className="bao-board-wrap">
         <Board
-          view={view}
+          view={display}
           moves={moves}
+          focus={focus}
+          animating={animating}
           onPlay={handlePlay}
           onAmbiguous={setAmbiguous}
         />
-        <SubstatePrompt view={view} moves={moves} onPlay={handlePlay} />
-        {ambiguous && (
+        {!animating && (
+          <SubstatePrompt view={view} moves={moves} onPlay={handlePlay} />
+        )}
+        {!animating && ambiguous && (
           <div className="bao-prompt" role="dialog" aria-label="Kies richting">
             <span className="bao-prompt-label">
               Pit {ambiguous.coord.vichwa} ({ambiguous.coord.player === 0 ? "South" : "North"}) — richting?

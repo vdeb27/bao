@@ -7,6 +7,7 @@ import {
   type BoardState,
   type Direction,
   type Move,
+  type PitFocus,
 } from "../engine";
 
 // Canvas layout constants. The four screen rows top-to-bottom are:
@@ -134,15 +135,31 @@ export type DirectionPick = {
 };
 
 type BoardProps = {
+  /** Animation-paced view. During event playback this lags behind the engine
+   * view; click input is suppressed via `animating`. */
   view: BoardState;
+  /** Legal moves derived from the *authoritative* engine view. Highlighting
+   * uses these only when `animating` is false. */
   moves: Move[];
+  /** Pit highlighted for the current animation frame (null while idle). */
+  focus: PitFocus | null;
+  /** True iff an event-stream is being animated; suppresses click handling
+   * and legal-move outlines so the visual matches the current display. */
+  animating: boolean;
   /** Called when the click resolves to exactly one legal move. */
   onPlay: (move: Move) => void;
   /** Called when a pit click yields multiple legal moves (CW / CCW choice). */
   onAmbiguous: (pick: DirectionPick) => void;
 };
 
-export function Board({ view, moves, onPlay, onAmbiguous }: BoardProps) {
+export function Board({
+  view,
+  moves,
+  focus,
+  animating,
+  onPlay,
+  onAmbiguous,
+}: BoardProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -150,12 +167,13 @@ export function Board({ view, moves, onPlay, onAmbiguous }: BoardProps) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    draw(ctx, view, moves);
-  }, [view, moves]);
+    draw(ctx, view, animating ? [] : moves, focus);
+  }, [view, moves, focus, animating]);
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (animating) return;
     // Substates short-circuit pit clicks; SubstatePrompt handles those.
     if (substateTag(substate(view.phase)) !== "AwaitMove") return;
     if (view.winner !== null) return;
@@ -185,7 +203,12 @@ export function Board({ view, moves, onPlay, onAmbiguous }: BoardProps) {
   );
 }
 
-function draw(ctx: CanvasRenderingContext2D, view: BoardState, moves: Move[]) {
+function draw(
+  ctx: CanvasRenderingContext2D,
+  view: BoardState,
+  moves: Move[],
+  focus: PitFocus | null,
+) {
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   // Background panel.
@@ -224,7 +247,9 @@ function draw(ctx: CanvasRenderingContext2D, view: BoardState, moves: Move[]) {
       const legal = isOwnSide && legalKeys.has(`${coord.player}:${coord.vichwa}`);
       const nyumba = isNyumba(view, coord);
       const blocked = isKutakatiaBlocked(view, coord);
-      drawPit(ctx, x, y, count, { legal, nyumba, blocked, owned: isOwnSide });
+      const flashing =
+        focus !== null && focus.player === coord.player && focus.vichwa === coord.vichwa;
+      drawPit(ctx, x, y, count, { legal, nyumba, blocked, owned: isOwnSide, flashing });
     }
   }
 }
@@ -260,6 +285,7 @@ type PitStyle = {
   nyumba: boolean;
   blocked: boolean;
   owned: boolean;
+  flashing: boolean;
 };
 
 function drawPit(
@@ -270,13 +296,20 @@ function drawPit(
   style: PitStyle,
 ) {
   let fill = "#4a3826";
-  if (style.blocked) fill = "#5b2b2b";
+  if (style.flashing) fill = "#8b6a3a";
+  else if (style.blocked) fill = "#5b2b2b";
   else if (style.nyumba) fill = "#5a4226";
   else if (style.owned) fill = "#54402c";
 
   ctx.fillStyle = fill;
-  ctx.strokeStyle = style.legal ? "#facc15" : style.nyumba ? "#d4a574" : "#6b5440";
-  ctx.lineWidth = style.legal ? 3 : 2;
+  ctx.strokeStyle = style.flashing
+    ? "#fde68a"
+    : style.legal
+      ? "#facc15"
+      : style.nyumba
+        ? "#d4a574"
+        : "#6b5440";
+  ctx.lineWidth = style.flashing ? 4 : style.legal ? 3 : 2;
   roundedRect(ctx, x, y, PIT_SIZE, PIT_SIZE, style.nyumba ? 14 : 10);
   ctx.fill();
   ctx.stroke();
