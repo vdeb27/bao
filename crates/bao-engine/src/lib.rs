@@ -17,8 +17,8 @@ pub mod zobrist;
 pub use rules::{apply, legal_moves};
 pub use board::{
     BoardState, Direction, Kutakatia, NyumbaState, Phase, Side, Substate, MBELE_LEN, NYUMBA_COL,
-    NYUMBA_COL_NORTH, NYUMBA_FUNCTIONAL_THRESHOLD, NYUMBA_INITIAL_KETE, NYUMA_LEN, PACKED_LEN,
-    PACK_MAGIC, PACK_VERSION, PITS_PER_SIDE, TOTAL_KETE,
+    NYUMBA_FUNCTIONAL_THRESHOLD, NYUMBA_INITIAL_KETE, NYUMA_LEN, PACKED_LEN, PACK_MAGIC,
+    PACK_VERSION, PITS_PER_SIDE, TOTAL_KETE,
 };
 pub use events::MoveEvent;
 pub use moves::{KichwaSide, Move};

@@ -4,13 +4,14 @@ use serde::{Deserialize, Serialize};
 pub const PITS_PER_SIDE: usize = 16;
 pub const MBELE_LEN: usize = 8;
 pub const NYUMA_LEN: usize = 8;
-/// Mbele column index (0-based) of the nyumba for player South (= field 5 in
-/// 1-based geziefer encoding). North's nyumba is mirrored to NYUMBA_COL_NORTH.
-/// See RULES.md §1.2.
+/// Mbele column index (0-based) of the nyumba — `field 5` in 1-based
+/// notation. Both players' data layouts are symmetric in their own
+/// perspective: each player's nyumba sits at vichwa[4] alongside two
+/// 2-kete pits at vichwa[5] and vichwa[6]. Because North's data is
+/// mirrored on screen relative to South's, the nyumbas end up in
+/// *different* physical columns (col `e` from each player's view), not
+/// the same one. See RULES.md §1.2.
 pub const NYUMBA_COL: usize = 4;
-/// Mbele column index (0-based) of the nyumba for player North (= field 4 in
-/// 1-based geziefer encoding). See RULES.md §1.2.
-pub const NYUMBA_COL_NORTH: usize = 3;
 /// Initial seed count in nyumba at game start (Kiswahili). See RULES.md §2.1.
 pub const NYUMBA_INITIAL_KETE: u8 = 6;
 /// Threshold below which nyumba becomes Disabled. See RULES.md §8.3.
@@ -92,9 +93,9 @@ pub struct Side {
     pub vichwa: [u8; PITS_PER_SIDE],
     pub ghala: u8,
     pub nyumba_owned: bool,
-    /// Mbele index (0..8) of this side's nyumba. South: NYUMBA_COL (=4),
-    /// North: NYUMBA_COL_NORTH (=3). Irrelevant in Kujifunza but still
-    /// stored to keep Side variant-agnostic.
+    /// Mbele index (0..8) of this side's nyumba. Both players store it at
+    /// NYUMBA_COL (=4) in their own perspective. Irrelevant in Kujifunza
+    /// but still stored to keep Side variant-agnostic.
     pub nyumba_col: u8,
 }
 
@@ -156,35 +157,28 @@ impl BoardState {
     }
 
     fn initial_kiswahili() -> Self {
-        // South's data layout: own perspective, field 1..8 mapped to idx 0..7
-        // left-to-right. RULES.md §2.1: nyumba (field 5 = idx 4) holds 6;
-        // fields 6,7 (idx 5,6) hold 2 each.
-        let mut south_vichwa = [0u8; PITS_PER_SIDE];
-        south_vichwa[NYUMBA_COL] = NYUMBA_INITIAL_KETE;
-        south_vichwa[NYUMBA_COL + 1] = 2;
-        south_vichwa[NYUMBA_COL + 2] = 2;
-
-        // North's data: per-side perspective, but RULES.md §2.1 places
-        // North's nyumba at field 4 (idx 3) and the two flanking 2-kete pits
-        // at fields 2,3 (idx 1,2). This is asymmetric vs. South in stored
-        // form; geziefer's capture rule reads opp[c] at the same index, so
-        // the encoding is intentionally per-side.
-        let mut north_vichwa = [0u8; PITS_PER_SIDE];
-        north_vichwa[NYUMBA_COL_NORTH] = NYUMBA_INITIAL_KETE;
-        north_vichwa[NYUMBA_COL_NORTH - 1] = 2;
-        north_vichwa[NYUMBA_COL_NORTH - 2] = 2;
+        // Both players use the same per-side data layout (RULES.md §2.1):
+        // own perspective, field 1..8 mapped to idx 0..7 left-to-right.
+        // Nyumba (field 5 = idx 4) holds 6; fields 6,7 (idx 5,6) hold 2
+        // each. The two players' rows are mirrored on screen, so on the
+        // physical board the kete sit in mirror-symmetric columns rather
+        // than directly opposite each other.
+        let mut vichwa = [0u8; PITS_PER_SIDE];
+        vichwa[NYUMBA_COL] = NYUMBA_INITIAL_KETE;
+        vichwa[NYUMBA_COL + 1] = 2;
+        vichwa[NYUMBA_COL + 2] = 2;
 
         let south = Side {
-            vichwa: south_vichwa,
+            vichwa,
             ghala: 22,
             nyumba_owned: true,
             nyumba_col: NYUMBA_COL as u8,
         };
         let north = Side {
-            vichwa: north_vichwa,
+            vichwa,
             ghala: 22,
             nyumba_owned: true,
-            nyumba_col: NYUMBA_COL_NORTH as u8,
+            nyumba_col: NYUMBA_COL as u8,
         };
 
         BoardState {
@@ -209,7 +203,7 @@ impl BoardState {
             vichwa: [2u8; PITS_PER_SIDE],
             ghala: 0,
             nyumba_owned: false,
-            nyumba_col: NYUMBA_COL_NORTH as u8,
+            nyumba_col: NYUMBA_COL as u8,
         };
 
         BoardState {
@@ -494,12 +488,12 @@ mod tests {
             assert_eq!(side.mbele_total(), 10);
             assert_eq!(side.nyuma_total(), 0);
         }
-        // South: nyumba at idx 4, flanking 2-kete at idx 5,6.
-        assert_eq!(state.sides[0].vichwa[NYUMBA_COL + 1], 2);
-        assert_eq!(state.sides[0].vichwa[NYUMBA_COL + 2], 2);
-        // North: nyumba at idx 3, flanking 2-kete at idx 1,2.
-        assert_eq!(state.sides[1].vichwa[NYUMBA_COL_NORTH - 1], 2);
-        assert_eq!(state.sides[1].vichwa[NYUMBA_COL_NORTH - 2], 2);
+        // Both sides: nyumba at idx 4, flanking 2-kete at idx 5,6 in
+        // each player's own perspective. Mirror-symmetric on screen.
+        for side_idx in 0..2 {
+            assert_eq!(state.sides[side_idx].vichwa[NYUMBA_COL + 1], 2);
+            assert_eq!(state.sides[side_idx].vichwa[NYUMBA_COL + 2], 2);
+        }
     }
 
     #[test]

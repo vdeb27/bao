@@ -913,7 +913,7 @@ fn maybe_destroy_opp_nyumba(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::{BoardState, Side, NYUMBA_COL, NYUMBA_COL_NORTH, PITS_PER_SIDE};
+    use crate::board::{BoardState, Side, NYUMBA_COL, PITS_PER_SIDE};
 
     fn empty_kiswahili_state() -> BoardState {
         let south = Side {
@@ -926,7 +926,7 @@ mod tests {
             vichwa: [0u8; PITS_PER_SIDE],
             ghala: 32,
             nyumba_owned: true,
-            nyumba_col: NYUMBA_COL_NORTH as u8,
+            nyumba_col: NYUMBA_COL as u8,
         };
         BoardState {
             sides: [south, north],
@@ -950,7 +950,7 @@ mod tests {
             vichwa: [0u8; PITS_PER_SIDE],
             ghala: 0,
             nyumba_owned: false,
-            nyumba_col: NYUMBA_COL_NORTH as u8,
+            nyumba_col: NYUMBA_COL as u8,
         };
         BoardState {
             sides: [south, north],
@@ -983,18 +983,23 @@ mod tests {
     // ---------- Namu legal moves ----------
 
     #[test]
-    fn namu_initial_position_has_three_captures() {
-        // At the initial Kiswahili position both sides have kete at their own
-        // mbele cols 4,5,6 (own perspective). The mirrored opp pits for South
-        // sowing into col c are at opp.vichwa[7-c], i.e. opp cols 3,2,1 — and
-        // those are exactly the filled pits on North's side. So all three
-        // sowings are kulas; mandatory-kula bars takata.
+    fn namu_initial_position_no_captures_falls_to_takata() {
+        // Symmetric per-side initial setup: both players fill cols 4,5,6 in
+        // their own perspective, which on screen produces mirror-symmetric
+        // placements (not directly opposite). For South sowing into mbele[c]
+        // the geometric opposite is opp.vichwa[7-c]; for c∈{4,5,6} that's
+        // opp cols {3,2,1}, all of which are empty initially. No captures →
+        // takata fallback.
         let state = BoardState::new(Variant::Kiswahili);
         let moves = legal_moves(&state);
-        assert_eq!(moves.len(), 3);
         for m in &moves {
-            assert!(matches!(m, Move::Namu { col: 4 | 5 | 6, .. }), "got {:?}", m);
+            assert!(matches!(m, Move::Namu { .. }), "got {:?}", m);
         }
+        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 5, .. })));
+        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 6, .. })));
+        // col 4 is the functional nyumba; tax-rule means it's only the
+        // fallback source, and other mbele cols (5, 6) are non-empty.
+        assert!(!moves.iter().any(|m| matches!(m, Move::Namu { col: 4, .. })));
     }
 
     #[test]
