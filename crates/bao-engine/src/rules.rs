@@ -16,6 +16,16 @@ use crate::variant::Variant;
 /// rounds × 16 pits = 192 hops.
 const ZOMBIE_HOP_LIMIT: u32 = 192;
 
+/// Map an mbele index in one player's perspective to the geometrically
+/// opposite mbele index in the other player's perspective. Both sides store
+/// their mbele left-to-right from their own seat, so the two mbele rows are
+/// mirrored on screen. The captured pit must be the one in the same physical
+/// column as the sowing pit, which means flipping the index across the row.
+#[inline]
+pub fn opp_mbele(own_idx: u8) -> u8 {
+    (MBELE_LEN as u8 - 1) - own_idx
+}
+
 /// Field where a sow of `count` kete starting at `start` and going in `dir`
 /// will drop its last kete. Wraps around the 16-pit ring. See RULES.md §1.3.
 pub fn landing(start: u8, dir: Direction, count: u8) -> u8 {
@@ -67,7 +77,7 @@ fn namu_legal_moves(state: &BoardState) -> Vec<Move> {
 fn namu_captures(own: &Side, opp: &Side) -> Vec<Move> {
     let mut out = Vec::new();
     for c in 0..MBELE_LEN as u8 {
-        if own.vichwa[c as usize] >= 1 && opp.vichwa[c as usize] >= 1 {
+        if own.vichwa[c as usize] >= 1 && opp.vichwa[opp_mbele(c) as usize] >= 1 {
             out.push(Move::Namu {
                 col: c,
                 dir: Direction::Cw,
@@ -171,17 +181,19 @@ fn mtaji_captures(state: &BoardState) -> Vec<Move> {
             if (land as usize) >= MBELE_LEN {
                 continue;
             }
-            if !(own.vichwa[land as usize] >= 1 && opp.vichwa[land as usize] >= 1) {
+            if !(own.vichwa[land as usize] >= 1 && opp.vichwa[opp_mbele(land) as usize] >= 1)
+            {
                 continue;
             }
             if let Some(kt) = state.kutakatia {
                 if kt.blocked_player == opp_idx as u8 {
-                    // Active is the blocker: only captures landing at blocked_field.
-                    if land != kt.blocked_field {
+                    // Active is the blocker; `blocked_field` is stored in the
+                    // blocked (= opponent) player's perspective, so compare it
+                    // to the mirror of `land` (which is active's perspective).
+                    if opp_mbele(land) != kt.blocked_field {
                         continue;
                     }
                 } else if kt.blocked_player == active {
-                    // Active is the blocked player: no captures permitted.
                     continue;
                 }
             }
@@ -346,8 +358,8 @@ fn apply_namu(
         return Err("ghala empty in namu");
     }
 
-    let is_kula =
-        state.sides[active].vichwa[col as usize] >= 1 && state.sides[opp].vichwa[col as usize] >= 1;
+    let is_kula = state.sides[active].vichwa[col as usize] >= 1
+        && state.sides[opp].vichwa[opp_mbele(col) as usize] >= 1;
 
     // Place 1 kete from ghala into chosen mbele pit.
     state.sides[active].ghala -= 1;
@@ -425,7 +437,7 @@ fn apply_mtaji(
         let land = landing(pit, dir, count);
         (land as usize) < MBELE_LEN
             && state.sides[active].vichwa[land as usize] >= 1
-            && state.sides[opp].vichwa[land as usize] >= 1
+            && state.sides[opp].vichwa[opp_mbele(land) as usize] >= 1
     };
 
     // Pick up source.
@@ -485,19 +497,20 @@ fn apply_kichwa(
     }
 
     let opp = state.opponent(state.active) as usize;
+    let opp_pit = opp_mbele(capture_field);
 
-    // Capture: empty opponent's mbele[capture_field].
-    let captured = state.sides[opp].vichwa[capture_field as usize];
+    // Capture: empty opponent's mbele at the geometrically opposite pit.
+    let captured = state.sides[opp].vichwa[opp_pit as usize];
     if captured == 0 {
         return Err("kichwa: opponent capture-field is empty");
     }
-    state.sides[opp].vichwa[capture_field as usize] = 0;
+    state.sides[opp].vichwa[opp_pit as usize] = 0;
     events.push(MoveEvent::Capture {
         from_player: state.opponent(state.active),
-        from_pit: capture_field,
+        from_pit: opp_pit,
         count: captured,
     });
-    maybe_destroy_opp_nyumba(state, opp, capture_field, events);
+    maybe_destroy_opp_nyumba(state, opp, opp_pit, events);
 
     // Sow from kichwa in the implied direction. Per geziefer, the start
     // position is one step before kichwa so the first loop iteration drops
@@ -643,7 +656,7 @@ fn do_capture_sow(
         // Mid-sow capture trigger (RULES.md §6.1 applied to endelea-laps).
         if (pos as usize) < MBELE_LEN
             && landed >= 2
-            && state.sides[opp].vichwa[pos as usize] >= 1
+            && state.sides[opp].vichwa[opp_mbele(pos) as usize] >= 1
         {
             events.push(MoveEvent::KichwaSelectionRequired {
                 player: state.active,
@@ -706,7 +719,7 @@ fn end_turn(state: &mut BoardState, events: &mut Vec<MoveEvent>) {
     }
 
     // Phase shift namu → mtaji (Kiswahili) when both ghalas are empty
-    // (RULES.md §3.3).
+    // (RULES.md §3.3). Otherwise just reset substate to AwaitMove.
     if matches!(state.phase, Phase::Namu(_))
         && state.variant == Variant::Kiswahili
         && state.sides[0].ghala == 0
@@ -714,13 +727,12 @@ fn end_turn(state: &mut BoardState, events: &mut Vec<MoveEvent>) {
     {
         state.phase = Phase::Mtaji(Substate::AwaitMove);
         events.push(MoveEvent::PhaseShift);
-        return;
+    } else {
+        state.phase = match state.phase {
+            Phase::Namu(_) => Phase::Namu(Substate::AwaitMove),
+            Phase::Mtaji(_) => Phase::Mtaji(Substate::AwaitMove),
+        };
     }
-
-    state.phase = match state.phase {
-        Phase::Namu(_) => Phase::Namu(Substate::AwaitMove),
-        Phase::Mtaji(_) => Phase::Mtaji(Substate::AwaitMove),
-    };
 
     // Win/loss detection (RULES.md §9). Only applied at the start of the
     // new active player's turn — substate transitions don't end the game.
@@ -800,10 +812,11 @@ fn maybe_activate_kutakatia(state: &mut BoardState, events: &mut Vec<MoveEvent>)
     if destinations.len() != 1 {
         return;
     }
-    let field = destinations[0];
+    // The block is on the opponent's pit geometrically opposite to the
+    // active player's destination. Store and emit `blocked_field` in the
+    // *blocked* player's own perspective so consumers can read it directly.
+    let field = opp_mbele(destinations[0]);
 
-    // Exclusions: opp's functional nyumba, opp's only-≥1 mbele, opp's
-    // only-≥2 mbele.
     let opp_side = &state.sides[opp_idx];
     let is_opp_func_nyumba = field == opp_side.nyumba_col
         && opp_side.nyumba_owned
@@ -849,7 +862,9 @@ fn raw_mtaji_captures(own: &Side, opp: &Side) -> Vec<Move> {
             if (land as usize) >= MBELE_LEN {
                 continue;
             }
-            if own.vichwa[land as usize] >= 1 && opp.vichwa[land as usize] >= 1 {
+            if own.vichwa[land as usize] >= 1
+                && opp.vichwa[opp_mbele(land) as usize] >= 1
+            {
                 out.push(Move::Mtaji { pit, dir });
             }
         }
@@ -968,26 +983,26 @@ mod tests {
     // ---------- Namu legal moves ----------
 
     #[test]
-    fn namu_initial_position_no_captures_falls_to_takata() {
+    fn namu_initial_position_has_three_captures() {
+        // At the initial Kiswahili position both sides have kete at their own
+        // mbele cols 4,5,6 (own perspective). The mirrored opp pits for South
+        // sowing into col c are at opp.vichwa[7-c], i.e. opp cols 3,2,1 — and
+        // those are exactly the filled pits on North's side. So all three
+        // sowings are kulas; mandatory-kula bars takata.
         let state = BoardState::new(Variant::Kiswahili);
         let moves = legal_moves(&state);
-        // Initial Kiswahili: own mbele has cols 4,5,6 filled but opp.mbele
-        // mirror has cols 1,2,3 filled (from opp perspective those are their
-        // own initial positions). So columns 4,5,6 vs opponent 4,5,6 — opp's
-        // 4,5,6 are all 0. No captures.
+        assert_eq!(moves.len(), 3);
         for m in &moves {
-            assert!(matches!(m, Move::Namu { .. }), "got {:?}", m);
+            assert!(matches!(m, Move::Namu { col: 4 | 5 | 6, .. }), "got {:?}", m);
         }
-        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 5, .. })));
-        assert!(moves.iter().any(|m| matches!(m, Move::Namu { col: 6, .. })));
-        assert!(!moves.iter().any(|m| matches!(m, Move::Namu { col: 4, .. })));
     }
 
     #[test]
     fn namu_capture_when_aligned() {
         let mut state = empty_kiswahili_state();
         state.sides[0].vichwa[3] = 1; // own mbele
-        state.sides[1].vichwa[3] = 1; // opp mbele same col → capture available
+        // Geometric opposite of own col 3 is opp col 7-3 = 4.
+        state.sides[1].vichwa[4] = 1;
         state.sides[0].vichwa[5] = 4; // some non-capture filler
         let moves = legal_moves(&state);
         assert_eq!(moves.len(), 1);
@@ -1058,7 +1073,8 @@ mod tests {
         // so no capture there. Use Ccw: (5-3) mod 16 = 2 (mbele).
         state.sides[0].vichwa[5] = 3;
         state.sides[0].vichwa[2] = 1; // landing has >=1 pre-drop
-        state.sides[1].vichwa[2] = 1; // opponent same col has stones
+        // Geometric opposite of own col 2 is opp col 7-2 = 5.
+        state.sides[1].vichwa[5] = 1;
         let moves = legal_moves(&state);
         assert_eq!(
             moves,
@@ -1248,7 +1264,8 @@ mod tests {
     fn apply_namu_kula_awaits_kichwa() {
         let mut state = empty_kiswahili_state();
         state.sides[0].vichwa[3] = 1;
-        state.sides[1].vichwa[3] = 1;
+        // Geometric opposite of own col 3 is opp col 4.
+        state.sides[1].vichwa[4] = 1;
         let mv = Move::Namu {
             col: 3,
             dir: Direction::Cw,
@@ -1258,7 +1275,7 @@ mod tests {
         assert_eq!(after.sides[0].vichwa[3], 2);
         assert_eq!(after.sides[0].ghala, 31);
         // Opponent untouched.
-        assert_eq!(after.sides[1].vichwa[3], 1);
+        assert_eq!(after.sides[1].vichwa[4], 1);
         // Awaiting kichwa selection; active player still 0.
         assert_eq!(after.active, 0);
         assert!(matches!(
@@ -1272,19 +1289,19 @@ mod tests {
 
     #[test]
     fn apply_kichwa_executes_capture_and_sow() {
-        // Reproduce a namu-kula then kichwa: own col 3 has 1 (post-place 2),
-        // opp col 3 has 4 → capture 4. Kichwa Left (cw from pit 0).
+        // Reproduce a namu-kula then kichwa: own col 3 post-place has 2,
+        // opp col 4 (= 7-3) has 4 → capture 4. Kichwa Left (cw from pit 0).
         let mut state = empty_kiswahili_state();
         state.sides[0].vichwa[3] = 2; // post-place state simulated
-        state.sides[1].vichwa[3] = 4;
+        state.sides[1].vichwa[4] = 4;
         state.phase = Phase::Namu(Substate::AwaitKichwa {
             capture_field: 3,
             prior_dir: None,
         });
         let mv = Move::Kichwa(KichwaSide::Left);
         let (after, _) = apply(&state, mv).unwrap();
-        // Opponent's col 3 emptied.
-        assert_eq!(after.sides[1].vichwa[3], 0);
+        // Opponent's col 4 emptied (the geometrically opposite pit).
+        assert_eq!(after.sides[1].vichwa[4], 0);
         // 4 kete sown clockwise from kichwa pit 0: drops at 0, 1, 2, 3.
         // Pre-sow our pits: 0=0,1=0,2=0,3=2. After 4 drops: 0=1,1=1,2=1,3=3.
         // Then post-final-drop at pit 3, count=3 → endelea! Pickup 3, sow
@@ -1324,10 +1341,10 @@ mod tests {
     #[test]
     fn apply_mtaji_capture_awaits_kichwa() {
         let mut state = empty_mtaji_state();
-        // Pit 5 has 3 kete; sow ccw: 4,3,2. Land=2, own=1, opp=1 → capture.
+        // Pit 5 has 3 kete; sow ccw: 4,3,2. Land=2, own=1, opp[7-2=5]=1 → capture.
         state.sides[0].vichwa[5] = 3;
         state.sides[0].vichwa[2] = 1;
-        state.sides[1].vichwa[2] = 1;
+        state.sides[1].vichwa[5] = 1;
         let (after, _) = apply(
             &state,
             Move::Mtaji {
@@ -1349,7 +1366,7 @@ mod tests {
         assert_eq!(after.sides[0].vichwa[3], 1);
         assert_eq!(after.sides[0].vichwa[2], 2);
         // Opponent untouched until kichwa applied.
-        assert_eq!(after.sides[1].vichwa[2], 1);
+        assert_eq!(after.sides[1].vichwa[5], 1);
         assert_eq!(after.active, 0);
     }
 
@@ -1495,13 +1512,15 @@ mod tests {
         let mut state = empty_mtaji_state();
         state.active = 0;
         // Active (S) has exactly one capture: pit 5 → ccw 3 steps → land 2.
+        // Geometrically opposite opp col is 7-2 = 5, so opp.vichwa[5] gets
+        // the kete and the activation will store blocked_field in opp's
+        // perspective.
         state.sides[0].vichwa[5] = 3;
         state.sides[0].vichwa[2] = 1; // landing has >=1
-        state.sides[1].vichwa[2] = 1; // opp has stones in same col
-        // Opp must also have a non-empty mbele NOT at col 2 to avoid the
-        // "only-≥1 mbele" exclusion.
         state.sides[1].vichwa[5] = 1;
-        // Opp must have no captures.
+        // Opp must also have a non-empty mbele away from the blocked target
+        // (col 5 in opp's perspective) to avoid the "only-≥1 mbele" exclusion.
+        state.sides[1].vichwa[2] = 1;
         let opp_caps =
             raw_mtaji_captures(&state.sides[1], &state.sides[0]);
         assert!(opp_caps.is_empty(), "test setup: opp shouldn't have captures");
@@ -1509,7 +1528,7 @@ mod tests {
         let mut events = Vec::new();
         maybe_activate_kutakatia(&mut state, &mut events);
         let kt = state.kutakatia.expect("should activate");
-        assert_eq!(kt.blocked_field, 2);
+        assert_eq!(kt.blocked_field, 5);
         assert_eq!(kt.blocked_player, 1);
         assert_eq!(kt.turns_remaining, 3);
     }
@@ -1520,8 +1539,9 @@ mod tests {
         state.active = 0;
         state.sides[0].vichwa[5] = 3;
         state.sides[0].vichwa[2] = 1;
-        // Opp only has a mbele kete at col 2 → exclusion fires.
-        state.sides[1].vichwa[2] = 1;
+        // Opp only has a mbele kete at the geometrically-opposite col (5) →
+        // exclusion fires (it's opp's only-≥1 mbele AND the block target).
+        state.sides[1].vichwa[5] = 1;
 
         let mut events = Vec::new();
         maybe_activate_kutakatia(&mut state, &mut events);
@@ -1557,14 +1577,14 @@ mod tests {
         let mut state = empty_mtaji_state();
         state.active = 1; // blocked player's turn
         state.kutakatia = Some(Kutakatia {
-            blocked_field: 2,
+            blocked_field: 2, // blocked player's perspective; just a marker here
             blocked_player: 1,
             turns_remaining: 2,
         });
-        // Set up a normal capture opportunity for player 1.
-        state.sides[1].vichwa[5] = 3; // pit 5, sow ccw 3 → land 2
+        // Player 1 sows pit 5 ccw 3 → land 2. Capture target = opp[7-2=5].
+        state.sides[1].vichwa[5] = 3;
         state.sides[1].vichwa[2] = 1;
-        state.sides[0].vichwa[2] = 1;
+        state.sides[0].vichwa[5] = 1;
         let captures = mtaji_captures(&state);
         assert!(captures.is_empty(), "blocked player must have no captures");
     }
@@ -1573,20 +1593,22 @@ mod tests {
     fn kutakatia_blocker_capture_restricted_to_blocked_field() {
         let mut state = empty_mtaji_state();
         state.active = 0; // blocker's turn
+        // blocked_field is stored in the blocked player's perspective.
+        // Active's allowed-landing maps to opp col = blocked_field, i.e.
+        // active land 2 ↔ opp col 5.
         state.kutakatia = Some(Kutakatia {
-            blocked_field: 2,
+            blocked_field: 5,
             blocked_player: 1,
             turns_remaining: 1,
         });
-        // Set up two possible captures for active.
-        // Capture A: pit 5 ccw 3 → land 2 (matches blocked_field).
+        // Capture A: pit 5 ccw 3 → land 2. Mirror = opp col 5 = blocked_field. Allowed.
         state.sides[0].vichwa[5] = 3;
         state.sides[0].vichwa[2] = 1;
-        state.sides[1].vichwa[2] = 1;
-        // Capture B: pit 1 cw 3 → land 4. Not blocked_field, must be filtered.
+        state.sides[1].vichwa[5] = 1;
+        // Capture B: pit 1 cw 3 → land 4. Mirror = opp col 3. Not blocked_field → filtered.
         state.sides[0].vichwa[1] = 3;
         state.sides[0].vichwa[4] = 1;
-        state.sides[1].vichwa[4] = 1;
+        state.sides[1].vichwa[3] = 1;
         let captures = mtaji_captures(&state);
         // Only capture A should remain.
         assert_eq!(
@@ -1619,9 +1641,10 @@ mod tests {
     #[test]
     fn apply_terminal_hamna_when_opp_mbele_emptied() {
         // South captures opp's only mbele kete via namu-kula → opp mbele 0 → S wins.
+        // Geometric opposite of own col 3 = opp col 4.
         let mut state = empty_kiswahili_state();
         state.sides[0].vichwa[3] = 1; // own pre-place
-        state.sides[1].vichwa[3] = 1; // opp's only mbele kete
+        state.sides[1].vichwa[4] = 1; // opp's only mbele kete
         // Trigger AwaitKichwa
         let (s1, _) = apply(
             &state,
