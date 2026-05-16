@@ -69,7 +69,9 @@ function pitFor(logicalRow: number, logicalCol: number): {
 }
 
 function buildLandscape(): Geometry {
-  // 8 cols × 4 rows. South at the bottom, North at the top.
+  // 8 cols × 4 rows. South at the bottom, North at the top. Each ghala
+  // spans only its own player's two rows so it's visually clear which
+  // side it belongs to (north's = upper half, south's = lower half).
   const boardInnerW = LOGICAL_COLS * PIT_SIZE + (LOGICAL_COLS - 1) * PIT_GAP;
   const boardInnerH =
     LOGICAL_ROWS * PIT_SIZE + (LOGICAL_ROWS - 1) * PIT_GAP + EQUATOR_GAP - PIT_GAP;
@@ -77,6 +79,8 @@ function buildLandscape(): Geometry {
   const height = boardInnerH + 2 * PADDING;
   const boardLeft = GHALA_THICKNESS + 2 * PADDING;
   const boardTop = PADDING;
+  // Each side's row-pair height: two pits + the pit-gap between them.
+  const sideHeight = 2 * PIT_SIZE + PIT_GAP;
   const pits: PitDescriptor[] = [];
   for (let r = 0; r < LOGICAL_ROWS; r++) {
     let y = boardTop;
@@ -91,17 +95,19 @@ function buildLandscape(): Geometry {
     width,
     height,
     ghala: {
-      south: {
-        x: PADDING,
-        y: boardTop,
-        w: GHALA_THICKNESS,
-        h: boardInnerH,
-      },
+      // North's ghala aligned to rows 0+1 (top half).
       north: {
         x: width - PADDING - GHALA_THICKNESS,
         y: boardTop,
         w: GHALA_THICKNESS,
-        h: boardInnerH,
+        h: sideHeight,
+      },
+      // South's ghala aligned to rows 2+3 (bottom half).
+      south: {
+        x: PADDING,
+        y: boardTop + sideHeight + EQUATOR_GAP,
+        w: GHALA_THICKNESS,
+        h: sideHeight,
       },
     },
     pits,
@@ -109,17 +115,19 @@ function buildLandscape(): Geometry {
 }
 
 function buildPortrait(): Geometry {
-  // Rotated 90° counter-clockwise: 4 cols × 8 rows.
-  // Portrait column index ↔ landscape row index (3 - portCol).
-  // Portrait row index ↔ landscape col index.
-  // South ends up on the left, North on the right.
+  // Rotated 90° counter-clockwise: 4 cols × 8 rows. Portrait col index ↔
+  // landscape row index (3 - portCol). Portrait row index ↔ landscape col
+  // index. South ends up on the left two cols, North on the right two.
   const boardInnerW =
     LOGICAL_ROWS * PIT_SIZE + (LOGICAL_ROWS - 1) * PIT_GAP + EQUATOR_GAP - PIT_GAP;
   const boardInnerH = LOGICAL_COLS * PIT_SIZE + (LOGICAL_COLS - 1) * PIT_GAP;
-  const width = boardInnerW + 4 * PADDING;
-  const height = boardInnerH + 2 * GHALA_THICKNESS + 4 * PADDING;
-  const boardTop = GHALA_THICKNESS + 2 * PADDING;
-  const boardLeft = 2 * PADDING;
+  const width = boardInnerW + 2 * GHALA_THICKNESS + 4 * PADDING;
+  const height = boardInnerH + 2 * PADDING;
+  const boardLeft = GHALA_THICKNESS + 2 * PADDING;
+  const boardTop = PADDING;
+  const sideHeight = boardInnerH;
+  // South's two cols (port cols 0 and 1) occupy this much width on screen.
+  const sideWidth = 2 * PIT_SIZE + PIT_GAP;
   const pits: PitDescriptor[] = [];
   for (let portRow = 0; portRow < LOGICAL_COLS; portRow++) {
     for (let portCol = 0; portCol < LOGICAL_ROWS; portCol++) {
@@ -137,18 +145,21 @@ function buildPortrait(): Geometry {
     width,
     height,
     ghala: {
+      // South ghala on the left of South's two columns (port cols 0, 1).
       south: {
-        // Top ghala = South in portrait.
-        x: boardLeft,
-        y: PADDING,
-        w: boardInnerW,
-        h: GHALA_THICKNESS,
+        x: PADDING,
+        y: boardTop,
+        w: GHALA_THICKNESS,
+        h: sideHeight,
       },
+      // North ghala on the right of North's two columns (port cols 2, 3).
+      // boardLeft + sideWidth + EQUATOR_GAP gets us past South's cols and
+      // the equator gap into North's territory.
       north: {
-        x: boardLeft,
-        y: height - PADDING - GHALA_THICKNESS,
-        w: boardInnerW,
-        h: GHALA_THICKNESS,
+        x: boardLeft + sideWidth + EQUATOR_GAP + sideWidth + PADDING,
+        y: boardTop,
+        w: GHALA_THICKNESS,
+        h: sideHeight,
       },
     },
     pits,

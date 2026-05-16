@@ -4,7 +4,14 @@ import { Board, type DirectionPick } from "./components/Board";
 import { MoveHistory } from "./components/MoveHistory";
 import { StatusBar } from "./components/StatusBar";
 import { SubstatePrompt } from "./components/SubstatePrompt";
-import { engineVersion, initEngine, type Move } from "./engine";
+import {
+  engineVersion,
+  initEngine,
+  moveCategory,
+  substate,
+  substateTag,
+  type Move,
+} from "./engine";
 import { useAnimationDriver } from "./hooks/useAnimationDriver";
 import { useOrientation } from "./hooks/useOrientation";
 import { useT } from "./i18n";
@@ -25,13 +32,29 @@ export function App() {
     focus,
     pending,
     history,
+    historyIndex,
     announcement,
     error,
     startNew,
     play,
+    jumpTo,
   } = useGameStore();
 
   useAnimationDriver();
+
+  // Auto-resolve kichwa selections when there's only one legal option.
+  // The substate-prompt UI is suppressed in that case; the player doesn't
+  // need to be asked when there's no actual choice (e.g. when the capture
+  // happened at a kimbi pit, RULES.md §6.3 dictates the side).
+  useEffect(() => {
+    if (!view || pending) return;
+    if (view.winner !== null) return;
+    if (substateTag(substate(view.phase)) !== "AwaitKichwa") return;
+    const kichwas = moves.filter((m) => moveCategory(m) === "Kichwa");
+    if (kichwas.length === 1) {
+      play(kichwas[0]);
+    }
+  }, [view, moves, pending, play]);
 
   useEffect(() => {
     initEngine()
@@ -85,7 +108,11 @@ export function App() {
             onPlay={handlePlay}
             onAmbiguous={setAmbiguous}
           />
-          <MoveHistory history={history} />
+          <MoveHistory
+            history={history}
+            historyIndex={historyIndex}
+            onJumpTo={jumpTo}
+          />
         </div>
         {!animating && (
           <SubstatePrompt view={view} moves={moves} onPlay={handlePlay} />

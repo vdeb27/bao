@@ -29,13 +29,21 @@ type GameStore = {
   pending: { events: MoveEvent[]; cursor: number } | null;
   focus: PitFocus | null;
   history: HistoryEntry[];
-  /** Live aria-live announcement string. Updated on every state-changing
-   * event so screen readers hear "Capture op pit f1" etc. */
+  /** All visited positions. `positions[i]` is the engine state after `i`
+   * moves. `positions[0]` is the initial position, `positions[history.length]`
+   * is the live tip. The array can have entries past `historyIndex` when the
+   * user has rewound — they remain available for "redo" via jumpTo. */
+  positions: Uint8Array[];
+  /** Pointer into `positions`. `state`/`view`/`display`/`moves` reflect
+   * `positions[historyIndex]`. */
+  historyIndex: number;
   announcement: string;
   error: string | null;
   startNew: (variant: Variant) => void;
   hydrate: (bytes: Uint8Array) => void;
   play: (move: Move) => void;
+  /** Jump to the state after the i-th move (1-based historyIndex). */
+  jumpTo: (index: number) => void;
   advance: () => void;
 };
 
@@ -68,6 +76,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   pending: null,
   focus: null,
   history: [],
+  positions: [],
+  historyIndex: 0,
   announcement: "",
   error: null,
   startNew: (variant) => {
@@ -79,6 +89,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       pending: null,
       focus: null,
       history: [],
+      positions: [s],
+      historyIndex: 0,
       announcement: "",
       error: null,
     });
@@ -93,11 +105,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         pending: null,
         focus: null,
         history: [],
+        positions: [bytes],
+        historyIndex: 0,
         announcement: "",
         error: null,
       });
     } catch (e) {
-      // Bad/old hash — fall back to a fresh Kiswahili game.
       set({ error: e instanceof Error ? e.message : String(e) });
       get().startNew("Kiswahili");
     }
@@ -116,12 +129,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
         player: currentView.active,
         ban,
       };
+      // If the user rewound and is now playing again, drop the discarded
+      // future branch before appending the new move.
+      const cur = get().historyIndex;
+      const truncatedHistory = get().history.slice(0, cur);
+      const truncatedPositions = get().positions.slice(0, cur + 1);
       set({
         ...snap,
         display: currentDisplay,
         pending: events.length > 0 ? { events, cursor: 0 } : null,
         focus: null,
-        history: [...get().history, entry],
+        history: [...truncatedHistory, entry],
+        positions: [...truncatedPositions, next],
+        historyIndex: cur + 1,
         error: null,
       });
       persistState(next);
@@ -132,6 +152,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({ error: e instanceof Error ? e.message : String(e) });
       useSound.getState().play("error");
     }
+  },
+  jumpTo: (index) => {
+    if (get().pending) return;
+    const positions = get().positions;
+    if (index < 0 || index >= positions.length) return;
+    const bytes = positions[index];
+    const snap = snapshot(bytes);
+    set({
+      ...snap,
+      display: cloneState(snap.view),
+      historyIndex: index,
+      pending: null,
+      focus: null,
+      error: null,
+    });
+    persistState(bytes);
   },
   advance: () => {
     const { pending, display, view } = get();
@@ -144,7 +180,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const next = cloneState(display);
     const focus = applyEventToDisplay(next, ev);
     const newCursor = pending.cursor + 1;
-    // Sound + announcement triggers.
     const sound = useSound.getState();
     if (typeof ev !== "string") {
       if ("Sow" in ev || "NamuPlace" in ev) sound.play("sow");

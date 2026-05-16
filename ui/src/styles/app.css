@@ -245,11 +245,36 @@ body {
 
 .bao-history-entry:hover {
   background: #3b2a1d;
+  cursor: pointer;
 }
 
 .bao-history-sub {
   padding-left: 28px;
   color: #c8b08a;
+}
+
+.bao-history-current {
+  background: #3b2a1d;
+  border-left: 3px solid #facc15;
+  padding-left: 9px;
+}
+
+.bao-history-current.bao-history-sub {
+  padding-left: 25px;
+}
+
+.bao-history-future {
+  opacity: 0.4;
+}
+
+.bao-history-future code,
+.bao-history-future .bao-history-idx,
+.bao-history-future .bao-history-player {
+  text-decoration: line-through;
+}
+
+.bao-history-start {
+  color: #d4b886;
 }
 
 .bao-history-idx {
@@ -297,6 +322,8 @@ body {
 
 .bao-kete-sprite {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 16px;
   height: 16px;
   border-radius: 50%;
