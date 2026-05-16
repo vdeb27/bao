@@ -67,6 +67,15 @@ pub fn zobrist(state_bytes: &[u8]) -> Result<u64, JsValue> {
     Ok(zobrist_key(&state))
 }
 
+/// Returns the unpacked `BoardState` as a JSON string. Used by the UI to
+/// render pits, ghala, phase, and winner without re-implementing the
+/// pack format on the JS side.
+#[wasm_bindgen]
+pub fn state_to_json(state_bytes: &[u8]) -> Result<String, JsValue> {
+    let state = unpack_state(state_bytes)?;
+    serde_json::to_string(&state).map_err(|e| JsValue::from_str(&format!("serialize state: {e}")))
+}
+
 #[derive(serde::Serialize)]
 struct ApplyResult {
     state: Vec<u8>,

@@ -61,6 +61,13 @@ fn zobrist(state_bytes: &[u8]) -> PyResult<u64> {
 }
 
 #[pyfunction]
+fn state_to_json(state_bytes: &[u8]) -> PyResult<String> {
+    let state = unpack_state(state_bytes)?;
+    serde_json::to_string(&state)
+        .map_err(|e| PyValueError::new_err(format!("serialize state: {e}")))
+}
+
+#[pyfunction]
 fn engine_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
@@ -71,6 +78,7 @@ fn bao_engine_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(legal_moves, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;
     m.add_function(wrap_pyfunction!(zobrist, m)?)?;
+    m.add_function(wrap_pyfunction!(state_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(engine_version, m)?)?;
     Ok(())
 }

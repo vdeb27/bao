@@ -39,3 +39,4 @@ training/checkpoints/
 .idea/
 .DS_Store
 *.swp
+ui/tsconfig.tsbuildinfo

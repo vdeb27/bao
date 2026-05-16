@@ -1,0 +1,157 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #1f1611;
+  color: #f3e1bd;
+}
+
+.bao-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: #c8b08a;
+}
+
+.bao-app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bao-statusbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 8px 12px;
+  background: #2c1f15;
+  border-radius: 10px;
+}
+
+.bao-statusbar h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.5px;
+}
+
+.bao-statusbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bao-statusbar-mid {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+.bao-statusbar-mid strong {
+  color: #facc15;
+}
+
+.bao-statusbar-right {
+  display: flex;
+  gap: 8px;
+}
+
+.bao-statusbar-right button {
+  background: #54402c;
+  color: #f3e1bd;
+  border: 1px solid #6b5440;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.bao-statusbar-right button:hover {
+  background: #6b5440;
+}
+
+.bao-variant-badge {
+  background: #54402c;
+  border: 1px solid #6b5440;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.bao-winner {
+  font-size: 18px;
+  color: #facc15;
+}
+
+.bao-error {
+  grid-column: 1 / -1;
+  background: #5b2b2b;
+  border: 1px solid #f87171;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.bao-board-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.bao-board {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.bao-prompt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #2c1f15;
+  border: 1px solid #6b5440;
+  padding: 8px 14px;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.bao-prompt-label {
+  font-size: 14px;
+  color: #d4b886;
+}
+
+.bao-prompt-button {
+  background: #54402c;
+  color: #f3e1bd;
+  border: 1px solid #facc15;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.bao-prompt-button:hover {
+  background: #6b5440;
+}
+
+.bao-prompt-cancel {
+  border-color: #6b5440;
+}
+
+.bao-footer {
+  text-align: center;
+  font-size: 11px;
+  color: #7d6648;
+  margin-top: 8px;
+}

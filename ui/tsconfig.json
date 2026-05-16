@@ -16,7 +16,11 @@
     "isolatedModules": true,
     "useDefineForClassFields": true,
     "allowImportingTsExtensions": false,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@bao/engine": ["../bindings/wasm/pkg/bao_engine_wasm"]
+    }
   },
   "include": ["src"]
 }
