@@ -1,19 +1,17 @@
 import { useEffect, useRef } from "react";
+import { useT } from "../i18n";
 import type { HistoryEntry } from "../store/gameStore";
 
-const PLAYER_LABEL = ["S", "N"]; // South / North short labels
+const PLAYER_LABEL = ["S", "N"];
 
 type Props = {
   history: HistoryEntry[];
 };
 
-/** Renders the move log as a vertical scroll-list. Each row shows the
- * one-based action index, who moved, and the BAN string. Sub-moves (kichwa
- * and safari) are grouped under the same parent ply via a faint indent. */
 export function MoveHistory({ history }: Props) {
+  const t = useT();
   const listRef = useRef<HTMLOListElement | null>(null);
 
-  // Auto-scroll to the latest entry whenever the log grows.
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
@@ -21,14 +19,14 @@ export function MoveHistory({ history }: Props) {
   }, [history.length]);
 
   return (
-    <aside className="bao-history" aria-label="Zettenlijst (BAN)">
+    <aside className="bao-history" aria-label={t("moves")}>
       <header className="bao-history-header">
-        <span>Zetten</span>
+        <span>{t("moves")}</span>
         <span className="bao-history-count">{history.length}</span>
       </header>
       <ol className="bao-history-list" ref={listRef}>
         {history.length === 0 ? (
-          <li className="bao-history-empty">— nog geen zetten —</li>
+          <li className="bao-history-empty">{t("noMoves")}</li>
         ) : (
           history.map((entry, i) => {
             const isSubmove = entry.ban.startsWith("K:") || entry.ban.startsWith("S");

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   moveCategory,
   phaseTag,
@@ -9,146 +9,207 @@ import {
   type Move,
   type PitFocus,
 } from "../engine";
+import { useT } from "../i18n";
 
-// Canvas layout constants. The four screen rows top-to-bottom are:
-//   row 0: north's nyuma (back row)         vichwa idx = 8 + screenCol
-//   row 1: north's mbele (capture row)      vichwa idx = 7 - screenCol
-//   row 2: south's mbele (capture row)      vichwa idx = screenCol
-//   row 3: south's nyuma (back row)         vichwa idx = 15 - screenCol
-const COLS = 8;
-const ROWS = 4;
+/** Layout-agnostic descriptor of a single pit: which side it belongs to,
+ * the vichwa index inside that side, and its screen-space top-left corner. */
+type PitDescriptor = {
+  player: 0 | 1;
+  vichwa: number;
+  /** 0..3: north-nyuma=0, north-mbele=1, south-mbele=2, south-nyuma=3. */
+  logicalRow: number;
+  /** 0..7: screen column from South's perspective (a..h). */
+  logicalCol: number;
+  /** Whether this pit is mbele (capture row). */
+  mbele: boolean;
+  x: number;
+  y: number;
+};
+
+export type Orientation = "landscape" | "portrait";
+
 const PIT_SIZE = 72;
 const PIT_GAP = 8;
 const EQUATOR_GAP = 20;
-const GHALA_WIDTH = 56;
+const GHALA_THICKNESS = 56;
 const PADDING = 24;
 
-const BOARD_INNER_WIDTH = COLS * PIT_SIZE + (COLS - 1) * PIT_GAP;
-const BOARD_INNER_HEIGHT =
-  ROWS * PIT_SIZE + (ROWS - 1) * PIT_GAP + EQUATOR_GAP - PIT_GAP;
-const CANVAS_WIDTH = BOARD_INNER_WIDTH + 2 * GHALA_WIDTH + 4 * PADDING;
-const CANVAS_HEIGHT = BOARD_INNER_HEIGHT + 2 * PADDING;
+const LOGICAL_COLS = 8;
+const LOGICAL_ROWS = 4;
 
-const BOARD_LEFT = GHALA_WIDTH + 2 * PADDING;
-const BOARD_TOP = PADDING;
+type Geometry = {
+  width: number;
+  height: number;
+  ghala: {
+    south: { x: number; y: number; w: number; h: number };
+    north: { x: number; y: number; w: number; h: number };
+  };
+  pits: PitDescriptor[];
+};
 
-type PitCoord = { player: 0 | 1; vichwa: number; screenRow: number; screenCol: number };
-
-function pitsForRow(screenRow: number): PitCoord[] {
-  const out: PitCoord[] = [];
-  for (let c = 0; c < COLS; c++) {
-    let player: 0 | 1;
-    let vichwa: number;
-    switch (screenRow) {
-      case 0:
-        player = 1;
-        vichwa = 8 + c;
-        break;
-      case 1:
-        player = 1;
-        vichwa = 7 - c;
-        break;
-      case 2:
-        player = 0;
-        vichwa = c;
-        break;
-      case 3:
-        player = 0;
-        vichwa = 15 - c;
-        break;
-      default:
-        throw new Error(`bad row ${screenRow}`);
-    }
-    out.push({ player, vichwa, screenRow, screenCol: c });
+function pitFor(logicalRow: number, logicalCol: number): {
+  player: 0 | 1;
+  vichwa: number;
+  mbele: boolean;
+} {
+  // logicalRow ordering: 0=north-nyuma, 1=north-mbele, 2=south-mbele, 3=south-nyuma.
+  // The vichwa indexing matches the landscape board.rs comment.
+  switch (logicalRow) {
+    case 0:
+      return { player: 1, vichwa: 8 + logicalCol, mbele: false };
+    case 1:
+      return { player: 1, vichwa: 7 - logicalCol, mbele: true };
+    case 2:
+      return { player: 0, vichwa: logicalCol, mbele: true };
+    case 3:
+      return { player: 0, vichwa: 15 - logicalCol, mbele: false };
+    default:
+      throw new Error(`bad row ${logicalRow}`);
   }
-  return out;
 }
 
-function rowY(screenRow: number): number {
-  let y = BOARD_TOP;
-  for (let r = 0; r < screenRow; r++) {
-    y += PIT_SIZE + (r === 1 ? EQUATOR_GAP : PIT_GAP);
-  }
-  return y;
-}
-
-function colX(screenCol: number): number {
-  return BOARD_LEFT + screenCol * (PIT_SIZE + PIT_GAP);
-}
-
-function findPitAt(x: number, y: number): PitCoord | null {
-  for (let r = 0; r < ROWS; r++) {
-    const py = rowY(r);
-    if (y < py || y > py + PIT_SIZE) continue;
-    for (let c = 0; c < COLS; c++) {
-      const px = colX(c);
-      if (x >= px && x <= px + PIT_SIZE) {
-        return pitsForRow(r)[c];
-      }
+function buildLandscape(): Geometry {
+  // 8 cols × 4 rows. South at the bottom, North at the top.
+  const boardInnerW = LOGICAL_COLS * PIT_SIZE + (LOGICAL_COLS - 1) * PIT_GAP;
+  const boardInnerH =
+    LOGICAL_ROWS * PIT_SIZE + (LOGICAL_ROWS - 1) * PIT_GAP + EQUATOR_GAP - PIT_GAP;
+  const width = boardInnerW + 2 * GHALA_THICKNESS + 4 * PADDING;
+  const height = boardInnerH + 2 * PADDING;
+  const boardLeft = GHALA_THICKNESS + 2 * PADDING;
+  const boardTop = PADDING;
+  const pits: PitDescriptor[] = [];
+  for (let r = 0; r < LOGICAL_ROWS; r++) {
+    let y = boardTop;
+    for (let rr = 0; rr < r; rr++) y += PIT_SIZE + (rr === 1 ? EQUATOR_GAP : PIT_GAP);
+    for (let c = 0; c < LOGICAL_COLS; c++) {
+      const x = boardLeft + c * (PIT_SIZE + PIT_GAP);
+      const info = pitFor(r, c);
+      pits.push({ ...info, logicalRow: r, logicalCol: c, x, y });
     }
   }
-  return null;
+  return {
+    width,
+    height,
+    ghala: {
+      south: {
+        x: PADDING,
+        y: boardTop,
+        w: GHALA_THICKNESS,
+        h: boardInnerH,
+      },
+      north: {
+        x: width - PADDING - GHALA_THICKNESS,
+        y: boardTop,
+        w: GHALA_THICKNESS,
+        h: boardInnerH,
+      },
+    },
+    pits,
+  };
 }
 
-function isNyumba(view: BoardState, coord: PitCoord): boolean {
+function buildPortrait(): Geometry {
+  // Rotated 90° counter-clockwise: 4 cols × 8 rows.
+  // Portrait column index ↔ landscape row index (3 - portCol).
+  // Portrait row index ↔ landscape col index.
+  // South ends up on the left, North on the right.
+  const boardInnerW =
+    LOGICAL_ROWS * PIT_SIZE + (LOGICAL_ROWS - 1) * PIT_GAP + EQUATOR_GAP - PIT_GAP;
+  const boardInnerH = LOGICAL_COLS * PIT_SIZE + (LOGICAL_COLS - 1) * PIT_GAP;
+  const width = boardInnerW + 4 * PADDING;
+  const height = boardInnerH + 2 * GHALA_THICKNESS + 4 * PADDING;
+  const boardTop = GHALA_THICKNESS + 2 * PADDING;
+  const boardLeft = 2 * PADDING;
+  const pits: PitDescriptor[] = [];
+  for (let portRow = 0; portRow < LOGICAL_COLS; portRow++) {
+    for (let portCol = 0; portCol < LOGICAL_ROWS; portCol++) {
+      const landRow = 3 - portCol;
+      const landCol = portRow;
+      let x = boardLeft;
+      for (let pc = 0; pc < portCol; pc++)
+        x += PIT_SIZE + (pc === 1 ? EQUATOR_GAP : PIT_GAP);
+      const y = boardTop + portRow * (PIT_SIZE + PIT_GAP);
+      const info = pitFor(landRow, landCol);
+      pits.push({ ...info, logicalRow: landRow, logicalCol: landCol, x, y });
+    }
+  }
+  return {
+    width,
+    height,
+    ghala: {
+      south: {
+        // Top ghala = South in portrait.
+        x: boardLeft,
+        y: PADDING,
+        w: boardInnerW,
+        h: GHALA_THICKNESS,
+      },
+      north: {
+        x: boardLeft,
+        y: height - PADDING - GHALA_THICKNESS,
+        w: boardInnerW,
+        h: GHALA_THICKNESS,
+      },
+    },
+    pits,
+  };
+}
+
+function buildGeometry(orientation: Orientation): Geometry {
+  return orientation === "landscape" ? buildLandscape() : buildPortrait();
+}
+
+function colLetter(col: number): string {
+  return String.fromCharCode("a".charCodeAt(0) + col);
+}
+
+function pitAriaLabel(t: ReturnType<typeof useT>, p: PitDescriptor, count: number, legal: boolean): string {
+  const playerName = p.player === 0 ? t("south") : t("north");
+  const row = p.mbele ? "mbele" : "nyuma";
+  return `${playerName} ${row} ${colLetter(p.logicalCol)}, ${count} kete${legal ? " (legal)" : ""}`;
+}
+
+function isNyumba(view: BoardState, p: PitDescriptor): boolean {
   if (view.variant !== "Kiswahili") return false;
-  const side = view.sides[coord.player];
-  return (
-    side.nyumba_owned &&
-    coord.vichwa === side.nyumba_col &&
-    // Only mbele pits can be nyumba.
-    coord.vichwa < 8
-  );
+  const side = view.sides[p.player];
+  return side.nyumba_owned && p.vichwa === side.nyumba_col && p.mbele;
 }
 
-function isKutakatiaBlocked(view: BoardState, coord: PitCoord): boolean {
+function isKutakatiaBlocked(view: BoardState, p: PitDescriptor): boolean {
   if (!view.kutakatia) return false;
   return (
-    view.kutakatia.blocked_player === coord.player &&
-    view.kutakatia.blocked_field === coord.vichwa
+    view.kutakatia.blocked_player === p.player &&
+    view.kutakatia.blocked_field === p.vichwa
   );
 }
 
-function movesForCoord(
-  view: BoardState,
-  moves: Move[],
-  coord: PitCoord,
-): Move[] {
-  if (coord.player !== view.active) return [];
+function movesForPit(view: BoardState, moves: Move[], p: PitDescriptor): Move[] {
+  if (p.player !== view.active) return [];
   const phaseT = phaseTag(view.phase);
   return moves.filter((m) => {
     const cat = moveCategory(m);
     if (phaseT === "Namu" && cat === "Namu") {
-      // Namu uses mbele col (0..7) = vichwa index for mbele pits.
-      return coord.vichwa < 8 && (m as { Namu: { col: number } }).Namu.col === coord.vichwa;
+      return p.vichwa < 8 && (m as { Namu: { col: number } }).Namu.col === p.vichwa;
     }
     if (phaseT === "Mtaji" && cat === "Mtaji") {
-      return (m as { Mtaji: { pit: number } }).Mtaji.pit === coord.vichwa;
+      return (m as { Mtaji: { pit: number } }).Mtaji.pit === p.vichwa;
     }
     return false;
   });
 }
 
 export type DirectionPick = {
-  coord: PitCoord;
-  candidates: Move[]; // length 2, one Cw + one Ccw
+  pit: PitDescriptor;
+  candidates: Move[];
 };
 
 type BoardProps = {
-  /** Animation-paced view. During event playback this lags behind the engine
-   * view; click input is suppressed via `animating`. */
   view: BoardState;
-  /** Legal moves derived from the *authoritative* engine view. Highlighting
-   * uses these only when `animating` is false. */
   moves: Move[];
-  /** Pit highlighted for the current animation frame (null while idle). */
   focus: PitFocus | null;
-  /** True iff an event-stream is being animated; suppresses click handling
-   * and legal-move outlines so the visual matches the current display. */
   animating: boolean;
-  /** Called when the click resolves to exactly one legal move. */
+  orientation: Orientation;
   onPlay: (move: Move) => void;
-  /** Called when a pit click yields multiple legal moves (CW / CCW choice). */
   onAmbiguous: (pick: DirectionPick) => void;
 };
 
@@ -157,127 +218,141 @@ export function Board({
   moves,
   focus,
   animating,
+  orientation,
   onPlay,
   onAmbiguous,
 }: BoardProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const t = useT();
+  const geometry = useMemo(() => buildGeometry(orientation), [orientation]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    draw(ctx, view, animating ? [] : moves, focus);
-  }, [view, moves, focus, animating]);
+    draw(ctx, view, animating ? [] : moves, focus, geometry, t);
+  }, [view, moves, focus, animating, geometry, t]);
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const handlePitActivate = (p: PitDescriptor) => {
     if (animating) return;
-    // Substates short-circuit pit clicks; SubstatePrompt handles those.
     if (substateTag(substate(view.phase)) !== "AwaitMove") return;
     if (view.winner !== null) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
-    const coord = findPitAt(x, y);
-    if (!coord) return;
-    const candidates = movesForCoord(view, moves, coord);
+    const candidates = movesForPit(view, moves, p);
     if (candidates.length === 1) {
       onPlay(candidates[0]);
     } else if (candidates.length > 1) {
-      onAmbiguous({ coord, candidates });
+      onAmbiguous({ pit: p, candidates });
     }
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={CANVAS_WIDTH}
-      height={CANVAS_HEIGHT}
-      className="bao-board"
-      onClick={handleClick}
-      role="grid"
-      aria-label="Bao bord"
-    />
+    <div
+      className="bao-board-canvas-wrap"
+      style={{ width: geometry.width, height: geometry.height }}
+    >
+      <canvas
+        ref={canvasRef}
+        width={geometry.width}
+        height={geometry.height}
+        className="bao-board"
+        aria-hidden="true"
+      />
+      <div className="bao-board-overlay" role="grid" aria-label={t("materialBalance")}>
+        {geometry.pits.map((p) => {
+          const count = view.sides[p.player].vichwa[p.vichwa];
+          const candidates = movesForPit(view, moves, p);
+          const legal = !animating && candidates.length > 0;
+          return (
+            <button
+              key={`${p.player}:${p.vichwa}`}
+              type="button"
+              className={`bao-pit-btn${legal ? " bao-pit-legal" : ""}`}
+              style={{
+                left: p.x,
+                top: p.y,
+                width: PIT_SIZE,
+                height: PIT_SIZE,
+              }}
+              aria-label={pitAriaLabel(t, p, count, legal)}
+              aria-disabled={!legal}
+              tabIndex={legal ? 0 : -1}
+              onClick={() => handlePitActivate(p)}
+            />
+          );
+        })}
+      </div>
+    </div>
   );
 }
+
+type DrawT = ReturnType<typeof useT>;
 
 function draw(
   ctx: CanvasRenderingContext2D,
   view: BoardState,
   moves: Move[],
   focus: PitFocus | null,
+  geometry: Geometry,
+  t: DrawT,
 ) {
-  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-  // Background panel.
+  ctx.clearRect(0, 0, geometry.width, geometry.height);
   ctx.fillStyle = "#3b2a1d";
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.fillRect(0, 0, geometry.width, geometry.height);
 
-  // Ghala rectangles, left = south, right = north.
-  drawGhala(ctx, PADDING, "South", view.sides[0].ghala, view.active === 0);
-  drawGhala(
-    ctx,
-    CANVAS_WIDTH - PADDING - GHALA_WIDTH,
-    "North",
-    view.sides[1].ghala,
-    view.active === 1,
-  );
+  drawGhala(ctx, geometry.ghala.south, t("south"), view.sides[0].ghala, view.active === 0);
+  drawGhala(ctx, geometry.ghala.north, t("north"), view.sides[1].ghala, view.active === 1);
 
-  // Legal-move targets, indexed by "player:vichwa".
   const legalKeys = new Set<string>();
   for (const m of moves) {
-    if ("Namu" in m) {
-      legalKeys.add(`${view.active}:${m.Namu.col}`);
-    } else if ("Mtaji" in m) {
-      legalKeys.add(`${view.active}:${m.Mtaji.pit}`);
-    }
+    if ("Namu" in m) legalKeys.add(`${view.active}:${m.Namu.col}`);
+    else if ("Mtaji" in m) legalKeys.add(`${view.active}:${m.Mtaji.pit}`);
   }
 
-  for (let r = 0; r < ROWS; r++) {
-    const pits = pitsForRow(r);
-    const y = rowY(r);
-    for (let c = 0; c < COLS; c++) {
-      const coord = pits[c];
-      const x = colX(c);
-      const side = view.sides[coord.player];
-      const count = side.vichwa[coord.vichwa];
-      const isOwnSide = view.active === coord.player;
-      const legal = isOwnSide && legalKeys.has(`${coord.player}:${coord.vichwa}`);
-      const nyumba = isNyumba(view, coord);
-      const blocked = isKutakatiaBlocked(view, coord);
-      const flashing =
-        focus !== null && focus.player === coord.player && focus.vichwa === coord.vichwa;
-      drawPit(ctx, x, y, count, { legal, nyumba, blocked, owned: isOwnSide, flashing });
-    }
+  for (const p of geometry.pits) {
+    const side = view.sides[p.player];
+    const count = side.vichwa[p.vichwa];
+    const isOwnSide = view.active === p.player;
+    const legal = isOwnSide && legalKeys.has(`${p.player}:${p.vichwa}`);
+    const nyumba = isNyumba(view, p);
+    const blocked = isKutakatiaBlocked(view, p);
+    const flashing = focus !== null && focus.player === p.player && focus.vichwa === p.vichwa;
+    drawPit(ctx, p.x, p.y, count, { legal, nyumba, blocked, owned: isOwnSide, flashing });
   }
 }
 
 function drawGhala(
   ctx: CanvasRenderingContext2D,
-  x: number,
+  rect: { x: number; y: number; w: number; h: number },
   label: string,
   count: number,
   active: boolean,
 ) {
-  const y = PADDING;
-  const h = BOARD_INNER_HEIGHT;
   ctx.fillStyle = active ? "#5d4a36" : "#4a3826";
   ctx.strokeStyle = active ? "#d4b886" : "#6b5440";
   ctx.lineWidth = 2;
-  roundedRect(ctx, x, y, GHALA_WIDTH, h, 10);
+  roundedRect(ctx, rect.x, rect.y, rect.w, rect.h, 10);
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = "#e8d3a8";
-  ctx.font = "14px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(label, x + GHALA_WIDTH / 2, y + 16);
-  ctx.font = "bold 24px system-ui, sans-serif";
-  ctx.fillText(String(count), x + GHALA_WIDTH / 2, y + h / 2);
-  ctx.font = "12px system-ui, sans-serif";
-  ctx.fillText("ghala", x + GHALA_WIDTH / 2, y + h - 16);
+  ctx.font = "14px system-ui, sans-serif";
+  // For wide-but-short ghalas (portrait) we just stack label/value horizontally.
+  const horiz = rect.w > rect.h;
+  if (horiz) {
+    ctx.fillText(label, rect.x + 40, rect.y + rect.h / 2);
+    ctx.font = "bold 24px system-ui, sans-serif";
+    ctx.fillText(String(count), rect.x + rect.w / 2, rect.y + rect.h / 2);
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.fillText("ghala", rect.x + rect.w - 40, rect.y + rect.h / 2);
+  } else {
+    ctx.fillText(label, rect.x + rect.w / 2, rect.y + 16);
+    ctx.font = "bold 24px system-ui, sans-serif";
+    ctx.fillText(String(count), rect.x + rect.w / 2, rect.y + rect.h / 2);
+    ctx.font = "12px system-ui, sans-serif";
+    ctx.fillText("ghala", rect.x + rect.w / 2, rect.y + rect.h - 16);
+  }
 }
 
 type PitStyle = {
@@ -322,6 +397,12 @@ function drawPit(
     ctx.stroke();
   }
 
+  // Colorblind supplement: a small star marker inside legal pits, so the
+  // yellow rim isn't the only signal.
+  if (style.legal) {
+    drawStar(ctx, x + PIT_SIZE - 14, y + 14, 5);
+  }
+
   ctx.fillStyle = count > 0 ? "#f3e1bd" : "#7d6648";
   ctx.font = "bold 22px system-ui, sans-serif";
   ctx.textAlign = "center";
@@ -336,6 +417,21 @@ function drawPit(
     ctx.lineTo(x + PIT_SIZE - 8, y + PIT_SIZE - 8);
     ctx.stroke();
   }
+}
+
+function drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  ctx.fillStyle = "#facc15";
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (i * Math.PI) / 5 - Math.PI / 2;
+    const rr = i % 2 === 0 ? r : r * 0.45;
+    const px = cx + Math.cos(a) * rr;
+    const py = cy + Math.sin(a) * rr;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 function roundedRect(
@@ -355,4 +451,4 @@ function roundedRect(
   ctx.closePath();
 }
 
-export type { PitCoord, Direction };
+export type { PitDescriptor, Direction };

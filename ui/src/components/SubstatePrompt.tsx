@@ -5,6 +5,7 @@ import {
   type BoardState,
   type Move,
 } from "../engine";
+import { useT } from "../i18n";
 
 type Props = {
   view: BoardState;
@@ -13,32 +14,34 @@ type Props = {
 };
 
 export function SubstatePrompt({ view, moves, onPlay }: Props) {
+  const t = useT();
   const tag = substateTag(substate(view.phase));
   if (tag === "AwaitMove") return null;
 
   if (tag === "AwaitKichwa") {
     const options = moves.filter((m) => moveCategory(m) === "Kichwa");
     return (
-      <div className="bao-prompt" role="dialog" aria-label="Kies kichwa">
-        <span className="bao-prompt-label">Kies kichwa voor capture-sow:</span>
+      <div className="bao-prompt" role="dialog" aria-label={t("chooseKichwa")}>
+        <span className="bao-prompt-label">{t("chooseKichwa")}</span>
         {options.map((m) => (
           <button
             key={(m as { Kichwa: string }).Kichwa}
             onClick={() => onPlay(m)}
             className="bao-prompt-button"
           >
-            {(m as { Kichwa: string }).Kichwa === "Left" ? "← Links" : "Rechts →"}
+            {(m as { Kichwa: string }).Kichwa === "Left"
+              ? t("kichwaLeft")
+              : t("kichwaRight")}
           </button>
         ))}
       </div>
     );
   }
 
-  // AwaitSafari
   const options = moves.filter((m) => moveCategory(m) === "Safari");
   return (
-    <div className="bao-prompt" role="dialog" aria-label="Safari beslissing">
-      <span className="bao-prompt-label">Safari — eigen nyumba leegmaken?</span>
+    <div className="bao-prompt" role="dialog" aria-label={t("safariPrompt")}>
+      <span className="bao-prompt-label">{t("safariPrompt")}</span>
       {options.map((m) => {
         const go = (m as { Safari: { go: boolean } }).Safari.go;
         return (
@@ -47,7 +50,7 @@ export function SubstatePrompt({ view, moves, onPlay }: Props) {
             onClick={() => onPlay(m)}
             className="bao-prompt-button"
           >
-            {go ? "Plunder & ga door" : "Stop"}
+            {go ? t("safariYes") : t("safariNo")}
           </button>
         );
       })}

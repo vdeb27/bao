@@ -6,12 +6,17 @@ import { StatusBar } from "./components/StatusBar";
 import { SubstatePrompt } from "./components/SubstatePrompt";
 import { engineVersion, initEngine, type Move } from "./engine";
 import { useAnimationDriver } from "./hooks/useAnimationDriver";
+import { useOrientation } from "./hooks/useOrientation";
+import { useT } from "./i18n";
+import { readPersistedState, shareUrl } from "./persistence";
 import { useGameStore } from "./store/gameStore";
 import "./styles/app.css";
 
 export function App() {
   const [engineReady, setEngineReady] = useState(false);
   const [ambiguous, setAmbiguous] = useState<DirectionPick | null>(null);
+  const t = useT();
+  const orientation = useOrientation();
   const {
     state,
     view,
@@ -20,6 +25,7 @@ export function App() {
     focus,
     pending,
     history,
+    announcement,
     error,
     startNew,
     play,
@@ -31,7 +37,12 @@ export function App() {
     initEngine()
       .then(() => {
         setEngineReady(true);
-        useGameStore.getState().startNew("Kiswahili");
+        const persisted = readPersistedState();
+        if (persisted) {
+          useGameStore.getState().hydrate(persisted);
+        } else {
+          useGameStore.getState().startNew("Kiswahili");
+        }
       })
       .catch((e) => console.error("engine init failed", e));
   }, []);
@@ -39,7 +50,7 @@ export function App() {
   if (!engineReady || !state || !view || !display) {
     return (
       <main className="bao-loading">
-        <p>Engine laden…</p>
+        <p>{t("loading")}</p>
       </main>
     );
   }
@@ -52,10 +63,11 @@ export function App() {
   };
 
   return (
-    <main className="bao-app">
+    <main className={`bao-app bao-orientation-${orientation}`}>
       <StatusBar
         view={display}
         error={error}
+        shareUrl={() => shareUrl(state)}
         onNewGame={(v) => {
           setAmbiguous(null);
           startNew(v);
@@ -69,6 +81,7 @@ export function App() {
             moves={moves}
             focus={focus}
             animating={animating}
+            orientation={orientation}
             onPlay={handlePlay}
             onAmbiguous={setAmbiguous}
           />
@@ -78,9 +91,12 @@ export function App() {
           <SubstatePrompt view={view} moves={moves} onPlay={handlePlay} />
         )}
         {!animating && ambiguous && (
-          <div className="bao-prompt" role="dialog" aria-label="Kies richting">
+          <div className="bao-prompt" role="dialog" aria-label={t("cancel")}>
             <span className="bao-prompt-label">
-              Pit {ambiguous.coord.vichwa} ({ambiguous.coord.player === 0 ? "South" : "North"}) — richting?
+              {t("directionPrompt", {
+                pit: ambiguous.pit.vichwa,
+                player: ambiguous.pit.player === 0 ? t("south") : t("north"),
+              })}
             </span>
             {ambiguous.candidates.map((m, i) => {
               const dir =
@@ -95,7 +111,7 @@ export function App() {
                   className="bao-prompt-button"
                   onClick={() => handlePlay(m)}
                 >
-                  {dir === "Cw" ? "↻ Met de klok mee" : "↺ Tegen de klok in"}
+                  {dir === "Cw" ? t("directionCw") : t("directionCcw")}
                 </button>
               );
             })}
@@ -103,12 +119,17 @@ export function App() {
               className="bao-prompt-button bao-prompt-cancel"
               onClick={() => setAmbiguous(null)}
             >
-              Annuleer
+              {t("cancel")}
             </button>
           </div>
         )}
       </div>
-      <footer className="bao-footer">engine v{engineVersion()}</footer>
+      <div role="status" aria-live="polite" className="bao-sr-only">
+        {announcement}
+      </div>
+      <footer className="bao-footer">
+        {t("engineVersion", { ver: engineVersion() })}
+      </footer>
     </main>
   );
 }
