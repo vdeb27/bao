@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AdvantageBar } from "./components/AdvantageBar";
 import { Board, type DirectionPick } from "./components/Board";
 import { MoveHistory } from "./components/MoveHistory";
 import { StatusBar } from "./components/StatusBar";
@@ -60,6 +61,7 @@ export function App() {
           startNew(v);
         }}
       />
+      <AdvantageBar view={display} />
       <div className="bao-board-wrap">
         <div className="bao-board-row">
           <Board

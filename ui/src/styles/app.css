@@ -100,6 +100,87 @@ body {
   font-size: 13px;
 }
 
+.bao-advantage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #2c1f15;
+  border-radius: 10px;
+}
+
+.bao-advantage-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  gap: 12px;
+  align-items: center;
+}
+
+.bao-advantage-count {
+  font-weight: 700;
+  font-size: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.bao-advantage-count-south {
+  color: #fde68a;
+}
+
+.bao-advantage-count-north {
+  color: #c8b08a;
+}
+
+.bao-advantage-track {
+  position: relative;
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #1f1611;
+  border: 1px solid #4a3826;
+}
+
+.bao-advantage-fill-south {
+  background: linear-gradient(90deg, #facc15, #ca8a04);
+  transition: width 220ms ease-out;
+}
+
+.bao-advantage-fill-north {
+  background: linear-gradient(90deg, #6b5440, #3a2a1c);
+  transition: width 220ms ease-out;
+}
+
+.bao-advantage-sub {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.bao-advantage-label {
+  color: #d4b886;
+  font-variant-numeric: tabular-nums;
+}
+
+.bao-advantage-track-mbele {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.bao-advantage-fill-south-mbele {
+  background: #facc15;
+  transition: width 220ms ease-out;
+  opacity: 0.85;
+}
+
+.bao-advantage-fill-north-mbele {
+  background: #6b5440;
+  transition: width 220ms ease-out;
+  opacity: 0.85;
+}
+
 .bao-board-wrap {
   display: flex;
   flex-direction: column;
