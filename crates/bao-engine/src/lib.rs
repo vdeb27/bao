@@ -6,11 +6,13 @@
 //! the repo root.
 
 pub mod board;
+pub mod eval;
 pub mod events;
 pub mod mcts;
 pub mod moves;
 pub mod notation;
 pub mod rules;
+pub mod search;
 pub mod variant;
 pub mod zobrist;
 
@@ -20,8 +22,10 @@ pub use board::{
     NYUMBA_FUNCTIONAL_THRESHOLD, NYUMBA_INITIAL_KETE, NYUMA_LEN, PACKED_LEN, PACK_MAGIC,
     PACK_VERSION, PITS_PER_SIDE, TOTAL_KETE,
 };
+pub use eval::{Evaluator, HeuristicEval, HeuristicWeights};
 pub use events::MoveEvent;
 pub use moves::{KichwaSide, Move};
 pub use notation::encode as encode_ban;
+pub use search::{search, SearchOptions, SearchResult, MATE_SCORE, MATE_THRESHOLD};
 pub use variant::Variant;
 pub use zobrist::zobrist_key;
