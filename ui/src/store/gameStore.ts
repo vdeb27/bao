@@ -13,6 +13,12 @@ import {
   type Variant,
 } from "../engine";
 
+export type HistoryEntry = {
+  ply: number; // pre-move ply count
+  player: number; // who played the move (0=South, 1=North)
+  ban: string;
+};
+
 type GameStore = {
   /** Authoritative engine packed bytes. */
   state: Uint8Array | null;
@@ -21,19 +27,18 @@ type GameStore = {
   /** Animation-paced visualisation. Equals `view` when idle, lags behind during
    * event playback. */
   display: BoardState | null;
-  /** Legal moves for the *authoritative* view (always reflects what the next
-   * input should produce). */
+  /** Legal moves for the *authoritative* view. */
   moves: Move[];
-  /** Remaining unplayed events, plus pre-move snapshot for the substate-prompt
-   * gate. Null when idle. */
+  /** Remaining unplayed events. Null when idle. */
   pending: { events: MoveEvent[]; cursor: number } | null;
   /** Pit to flash on the current animation step. */
   focus: PitFocus | null;
+  /** Move log in BAN notation, oldest first. */
+  history: HistoryEntry[];
   error: string | null;
   startNew: (variant: Variant) => void;
   play: (move: Move) => void;
-  /** Advance the animation by exactly one event. The animation hook calls this
-   * on a fixed timer; when the queue empties, display snaps to `view`. */
+  /** Advance the animation by exactly one event. */
   advance: () => void;
 };
 
@@ -49,6 +54,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   moves: [],
   pending: null,
   focus: null,
+  history: [],
   error: null,
   startNew: (variant) => {
     const s = newState(variant);
@@ -58,26 +64,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
       display: cloneState(snap.view),
       pending: null,
       focus: null,
+      history: [],
       error: null,
     });
   },
   play: (move) => {
     const current = get().state;
+    const currentView = get().view;
     const currentDisplay = get().display;
-    if (!current || !currentDisplay) return;
+    if (!current || !currentView || !currentDisplay) return;
     if (get().pending) return; // ignore clicks while animating
     try {
-      const { state: next, events } = applyMove(current, move);
+      const { state: next, events, ban } = applyMove(current, move);
       const snap = snapshot(next);
+      const entry: HistoryEntry = {
+        ply: currentView.ply,
+        player: currentView.active,
+        ban,
+      };
       set({
         ...snap,
-        // display stays where it was — events will move it forward.
         display: currentDisplay,
         pending: events.length > 0 ? { events, cursor: 0 } : null,
         focus: null,
+        history: [...get().history, entry],
         error: null,
       });
-      // If no events, snap display immediately.
       if (events.length === 0) {
         set({ display: cloneState(snap.view) });
       }

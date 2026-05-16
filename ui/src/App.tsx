@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Board, type DirectionPick } from "./components/Board";
+import { MoveHistory } from "./components/MoveHistory";
 import { StatusBar } from "./components/StatusBar";
 import { SubstatePrompt } from "./components/SubstatePrompt";
 import { engineVersion, initEngine, type Move } from "./engine";
@@ -10,8 +11,18 @@ import "./styles/app.css";
 export function App() {
   const [engineReady, setEngineReady] = useState(false);
   const [ambiguous, setAmbiguous] = useState<DirectionPick | null>(null);
-  const { state, view, display, moves, focus, pending, error, startNew, play } =
-    useGameStore();
+  const {
+    state,
+    view,
+    display,
+    moves,
+    focus,
+    pending,
+    history,
+    error,
+    startNew,
+    play,
+  } = useGameStore();
 
   useAnimationDriver();
 
@@ -50,14 +61,17 @@ export function App() {
         }}
       />
       <div className="bao-board-wrap">
-        <Board
-          view={display}
-          moves={moves}
-          focus={focus}
-          animating={animating}
-          onPlay={handlePlay}
-          onAmbiguous={setAmbiguous}
-        />
+        <div className="bao-board-row">
+          <Board
+            view={display}
+            moves={moves}
+            focus={focus}
+            animating={animating}
+            onPlay={handlePlay}
+            onAmbiguous={setAmbiguous}
+          />
+          <MoveHistory history={history} />
+        </div>
         {!animating && (
           <SubstatePrompt view={view} moves={moves} onPlay={handlePlay} />
         )}

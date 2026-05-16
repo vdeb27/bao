@@ -3,8 +3,8 @@
 //! as JSON strings parsed/serialised browser-side.
 
 use bao_engine::{
-    apply as engine_apply, legal_moves as engine_legal_moves, zobrist_key, BoardState, Move,
-    Variant,
+    apply as engine_apply, encode_ban, legal_moves as engine_legal_moves, zobrist_key, BoardState,
+    Move, Variant,
 };
 use wasm_bindgen::prelude::*;
 
@@ -53,9 +53,11 @@ pub fn apply(state_bytes: &[u8], move_json: &str) -> Result<JsValue, JsValue> {
         engine_apply(&state, mv).map_err(|e| JsValue::from_str(&format!("apply: {e}")))?;
     let events_json = serde_json::to_string(&events)
         .map_err(|e| JsValue::from_str(&format!("serialize events: {e}")))?;
+    let ban = encode_ban(&state, mv, &events);
     let out = ApplyResult {
         state: next.pack(),
         events: events_json,
+        ban,
     };
     serde_wasm_bindgen::to_value(&out)
         .map_err(|e| JsValue::from_str(&format!("to_value: {e}")))
@@ -80,4 +82,5 @@ pub fn state_to_json(state_bytes: &[u8]) -> Result<String, JsValue> {
 struct ApplyResult {
     state: Vec<u8>,
     events: String,
+    ban: String,
 }

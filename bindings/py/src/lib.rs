@@ -4,8 +4,8 @@
 //! the JSON, the engine remains the source of truth.
 
 use bao_engine::{
-    apply as engine_apply, legal_moves as engine_legal_moves, zobrist_key, BoardState, Move,
-    Variant,
+    apply as engine_apply, encode_ban, legal_moves as engine_legal_moves, zobrist_key, BoardState,
+    Move, Variant,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -44,14 +44,19 @@ fn legal_moves(state_bytes: &[u8]) -> PyResult<String> {
 }
 
 #[pyfunction]
-fn apply(py: Python<'_>, state_bytes: &[u8], move_json: &str) -> PyResult<(PyObject, String)> {
+fn apply(
+    py: Python<'_>,
+    state_bytes: &[u8],
+    move_json: &str,
+) -> PyResult<(PyObject, String, String)> {
     let state = unpack_state(state_bytes)?;
     let mv = parse_move(move_json)?;
     let (next, events) =
         engine_apply(&state, mv).map_err(|e| PyValueError::new_err(format!("apply: {e}")))?;
     let events_json = serde_json::to_string(&events)
         .map_err(|e| PyValueError::new_err(format!("serialize events: {e}")))?;
-    Ok((PyBytes::new_bound(py, &next.pack()).into(), events_json))
+    let ban = encode_ban(&state, mv, &events);
+    Ok((PyBytes::new_bound(py, &next.pack()).into(), events_json, ban))
 }
 
 #[pyfunction]

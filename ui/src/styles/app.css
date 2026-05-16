@@ -107,6 +107,99 @@ body {
   gap: 12px;
 }
 
+.bao-board-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  width: 100%;
+  justify-content: center;
+}
+
+.bao-history {
+  width: 220px;
+  max-height: 560px;
+  background: #2c1f15;
+  border-radius: 10px;
+  border: 1px solid #4a3826;
+  display: flex;
+  flex-direction: column;
+}
+
+.bao-history-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #d4b886;
+  border-bottom: 1px solid #4a3826;
+}
+
+.bao-history-count {
+  color: #7d6648;
+}
+
+.bao-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 13px;
+}
+
+.bao-history-empty {
+  padding: 10px 14px;
+  color: #7d6648;
+  font-style: italic;
+}
+
+.bao-history-entry {
+  display: grid;
+  grid-template-columns: 26px 22px 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 12px;
+  color: #f3e1bd;
+}
+
+.bao-history-entry:hover {
+  background: #3b2a1d;
+}
+
+.bao-history-sub {
+  padding-left: 28px;
+  color: #c8b08a;
+}
+
+.bao-history-idx {
+  color: #7d6648;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bao-history-player {
+  text-align: center;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 11px;
+}
+
+.bao-history-player-0 {
+  background: #54402c;
+  color: #fde68a;
+}
+
+.bao-history-player-1 {
+  background: #3a2a1c;
+  color: #c8b08a;
+}
+
+.bao-history-ban {
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  color: #f3e1bd;
+}
+
 .bao-board {
   max-width: 100%;
   height: auto;

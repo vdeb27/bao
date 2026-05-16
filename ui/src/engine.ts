@@ -153,12 +153,17 @@ export function legalMoves(state: Uint8Array): Move[] {
 export function applyMove(
   state: Uint8Array,
   move: Move,
-): { state: Uint8Array; events: MoveEvent[] } {
+): { state: Uint8Array; events: MoveEvent[]; ban: string } {
   const result = wasmApply(state, JSON.stringify(move)) as {
     state: Uint8Array;
     events: string;
+    ban: string;
   };
-  return { state: result.state, events: JSON.parse(result.events) as MoveEvent[] };
+  return {
+    state: result.state,
+    events: JSON.parse(result.events) as MoveEvent[],
+    ban: result.ban,
+  };
 }
 
 export function stateToJson(state: Uint8Array): BoardState {

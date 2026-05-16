@@ -22,5 +22,6 @@ pub use board::{
 };
 pub use events::MoveEvent;
 pub use moves::{KichwaSide, Move};
+pub use notation::encode as encode_ban;
 pub use variant::Variant;
 pub use zobrist::zobrist_key;
