@@ -234,6 +234,19 @@ export function Board({
     draw(ctx, view, animating ? [] : moves, focus, geometry, t);
   }, [view, moves, focus, animating, geometry, t]);
 
+  // Flying-kete sprite: a single absolutely-positioned dot follows the
+  // animation focus across pits. The browser interpolates `transform`
+  // between focus changes via the CSS transition, giving the visual a
+  // sense of motion without us scheduling per-frame paints.
+  const spritePos = focus
+    ? (() => {
+        const p = geometry.pits.find(
+          (pp) => pp.player === focus.player && pp.vichwa === focus.vichwa,
+        );
+        return p ? { x: p.x + PIT_SIZE / 2, y: p.y + PIT_SIZE / 2 } : null;
+      })()
+    : null;
+
   const handlePitActivate = (p: PitDescriptor) => {
     if (animating) return;
     if (substateTag(substate(view.phase)) !== "AwaitMove") return;
@@ -258,6 +271,15 @@ export function Board({
         className="bao-board"
         aria-hidden="true"
       />
+      {animating && spritePos && (
+        <div
+          className="bao-kete-sprite"
+          aria-hidden="true"
+          style={{
+            transform: `translate(${spritePos.x - 8}px, ${spritePos.y - 8}px)`,
+          }}
+        />
+      )}
       <div className="bao-board-overlay" role="grid" aria-label={t("materialBalance")}>
         {geometry.pits.map((p) => {
           const count = view.sides[p.player].vichwa[p.vichwa];
