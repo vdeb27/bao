@@ -7,10 +7,10 @@ const AI_THINK_DELAY_MS = 80; // small breathing room so the UI can paint
 
 /** Watches the active side and the opponent configuration; when it's the
  * AI's turn, runs a heuristic search and plays the returned move. Search
- * is synchronous (Bao positions are small enough that a few hundred ms at
- * depth 6 is plenty), so we offset it via setTimeout to avoid blocking
- * the same paint that flipped the turn. */
-export function useAIPlayer(maxDepth = 6, timeBudgetMs = 400): boolean {
+ * is synchronous so we offset it via setTimeout to give the UI a paint
+ * before the wasm call blocks. The node budget is a rough proxy for
+ * search time — 200k nodes is typically a few hundred ms on a desktop. */
+export function useAIPlayer(maxDepth = 6, maxNodes = 200_000): boolean {
   const view = useGameStore((s) => s.view);
   const state = useGameStore((s) => s.state);
   const pending = useGameStore((s) => s.pending);
@@ -36,7 +36,7 @@ export function useAIPlayer(maxDepth = 6, timeBudgetMs = 400): boolean {
     }
     setThinking(true);
     cancelRef.current = window.setTimeout(() => {
-      const r = searchHeuristic(state, maxDepth, timeBudgetMs);
+      const r = searchHeuristic(state, maxDepth, maxNodes);
       if (r.best_move) {
         play(r.best_move);
       }
@@ -46,7 +46,7 @@ export function useAIPlayer(maxDepth = 6, timeBudgetMs = 400): boolean {
       if (cancelRef.current !== null) window.clearTimeout(cancelRef.current);
       cancelRef.current = null;
     };
-  }, [view, state, pending, south, north, play, maxDepth, timeBudgetMs]);
+  }, [view, state, pending, south, north, play, maxDepth, maxNodes]);
 
   return thinking;
 }

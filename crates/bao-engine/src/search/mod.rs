@@ -12,8 +12,6 @@
 //! The current ordering is just "captures before takata", which is enough
 //! for the alpha-beta cutoffs to fire on most Bao positions.
 
-use std::time::{Duration, Instant};
-
 use crate::board::BoardState;
 use crate::eval::Evaluator;
 use crate::moves::Move;
@@ -27,23 +25,28 @@ pub mod alphabeta;
 pub const MATE_SCORE: i32 = 1_000_000;
 pub const MATE_THRESHOLD: i32 = 900_000;
 
+/// Search budget. Soft bounds via `max_depth` and `max_nodes`; whichever runs
+/// out first ends the search. We use a node budget rather than wall-clock
+/// because `std::time::Instant` panics under `wasm32-unknown-unknown`. The
+/// caller picks a node count appropriate for their target's throughput
+/// (≈100 k nodes ≈ a few hundred ms on a desktop CPU).
 #[derive(Debug, Clone, Copy)]
 pub struct SearchOptions {
     pub max_depth: u8,
-    pub time_budget: Duration,
+    pub max_nodes: u64,
 }
 
 impl SearchOptions {
     pub fn depth(d: u8) -> Self {
         Self {
             max_depth: d,
-            time_budget: Duration::from_secs(60),
+            max_nodes: u64::MAX,
         }
     }
-    pub fn budget(ms: u64) -> Self {
+    pub fn nodes(n: u64) -> Self {
         Self {
             max_depth: 64,
-            time_budget: Duration::from_millis(ms),
+            max_nodes: n,
         }
     }
 }
@@ -54,7 +57,6 @@ pub struct SearchResult {
     pub score: i32,
     pub depth_reached: u8,
     pub nodes: u64,
-    pub elapsed: Duration,
 }
 
 /// Top-level entry. Runs iterative deepening from depth 1 upward and returns
@@ -65,37 +67,37 @@ pub fn search<E: Evaluator>(
     eval: &E,
     opts: SearchOptions,
 ) -> SearchResult {
-    let started = Instant::now();
-    let deadline = started + opts.time_budget;
     let mut best = SearchResult {
         best_move: None,
         score: 0,
         depth_reached: 0,
         nodes: 0,
-        elapsed: Duration::ZERO,
     };
+    let mut total_nodes: u64 = 0;
 
     for depth in 1..=opts.max_depth {
-        let mut ctx = alphabeta::SearchCtx::new(eval, deadline);
+        let remaining = opts.max_nodes.saturating_sub(total_nodes);
+        if remaining == 0 {
+            break;
+        }
+        let mut ctx = alphabeta::SearchCtx::new(eval, remaining);
         let r = alphabeta::root_negamax(&mut ctx, state, depth);
+        total_nodes = total_nodes.saturating_add(ctx.nodes);
         if ctx.aborted {
-            // Abandon partial iteration — best from prior depth is more trustworthy.
+            // Abandon partial iteration — keep the previous depth's result.
             break;
         }
         best = SearchResult {
             best_move: r.best_move,
             score: r.score,
             depth_reached: depth,
-            nodes: best.nodes + ctx.nodes,
-            elapsed: started.elapsed(),
+            nodes: total_nodes,
         };
-        // If we already proved a forced mate, no need to go deeper.
         if r.score.abs() >= MATE_THRESHOLD {
             break;
         }
     }
 
-    best.elapsed = started.elapsed();
     best
 }
 
@@ -152,13 +154,11 @@ mod tests {
     }
 
     #[test]
-    fn search_respects_time_budget() {
+    fn search_respects_node_budget() {
         let state = BoardState::new(Variant::Kiswahili);
         let e = HeuristicEval::new();
-        let opts = SearchOptions::budget(50);
-        let r = search(&state, &e, opts);
-        // 50 ms must hard-bound elapsed by some slack (CI noise tolerant).
-        assert!(r.elapsed < Duration::from_millis(500));
+        let r = search(&state, &e, SearchOptions::nodes(200));
+        assert!(r.nodes <= 200 + 1024, "nodes: {}", r.nodes);
         assert!(r.best_move.is_some());
     }
 

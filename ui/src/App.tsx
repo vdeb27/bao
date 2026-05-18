@@ -42,7 +42,7 @@ export function App() {
   } = useGameStore();
 
   useAnimationDriver();
-  const thinking = useAIPlayer(6, 400);
+  const thinking = useAIPlayer(6, 200_000);
 
   // Auto-resolve kichwa selections when there's only one legal option.
   // The substate-prompt UI is suppressed in that case; the player doesn't

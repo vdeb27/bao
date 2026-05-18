@@ -7,8 +7,6 @@
 //! sowing from the same player's view, and the score sign tracks whoever is
 //! to move in the *resulting* state.
 
-use std::time::Instant;
-
 use crate::board::{Phase, Substate};
 use crate::eval::Evaluator;
 use crate::moves::Move;
@@ -17,22 +15,20 @@ use crate::rules::legal_moves;
 use super::{order_moves, try_apply, MATE_SCORE};
 
 const QSEARCH_MAX_DEPTH: u8 = 8;
-/// How often to test the deadline; checking every node is expensive.
-const TIME_CHECK_MASK: u64 = 0x3FF;
 
 pub(crate) struct SearchCtx<'a, E: Evaluator> {
     pub(crate) eval: &'a E,
     pub(crate) nodes: u64,
-    pub(crate) deadline: Instant,
+    pub(crate) node_budget: u64,
     pub(crate) aborted: bool,
 }
 
 impl<'a, E: Evaluator> SearchCtx<'a, E> {
-    pub(crate) fn new(eval: &'a E, deadline: Instant) -> Self {
+    pub(crate) fn new(eval: &'a E, node_budget: u64) -> Self {
         Self {
             eval,
             nodes: 0,
-            deadline,
+            node_budget,
             aborted: false,
         }
     }
@@ -40,7 +36,7 @@ impl<'a, E: Evaluator> SearchCtx<'a, E> {
     #[inline]
     fn tick(&mut self) -> bool {
         self.nodes += 1;
-        if self.nodes & TIME_CHECK_MASK == 0 && Instant::now() >= self.deadline {
+        if self.nodes >= self.node_budget {
             self.aborted = true;
         }
         !self.aborted

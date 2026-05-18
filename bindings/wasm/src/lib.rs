@@ -6,7 +6,14 @@ use bao_engine::{
     apply as engine_apply, encode_ban, legal_moves as engine_legal_moves, search as engine_search,
     zobrist_key, BoardState, HeuristicEval, Move, SearchOptions, Variant,
 };
-use std::time::Duration;
+use std::sync::Once;
+
+fn install_panic_hook() {
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        console_error_panic_hook::set_once();
+    });
+}
 use wasm_bindgen::prelude::*;
 
 fn parse_variant(name: &str) -> Result<Variant, JsValue> {
@@ -87,13 +94,14 @@ pub fn state_to_json(state_bytes: &[u8]) -> Result<String, JsValue> {
 pub fn search_heuristic(
     state_bytes: &[u8],
     max_depth: u8,
-    time_budget_ms: u32,
+    max_nodes: u32,
 ) -> Result<String, JsValue> {
+    install_panic_hook();
     let state = unpack_state(state_bytes)?;
     let eval = HeuristicEval::new();
     let opts = SearchOptions {
         max_depth,
-        time_budget: Duration::from_millis(time_budget_ms as u64),
+        max_nodes: max_nodes as u64,
     };
     let r = engine_search(&state, &eval, opts);
     let payload = SearchPayload {
@@ -101,7 +109,6 @@ pub fn search_heuristic(
         score: r.score,
         depth: r.depth_reached,
         nodes: r.nodes,
-        elapsed_ms: r.elapsed.as_millis() as u64,
     };
     serde_json::to_string(&payload)
         .map_err(|e| JsValue::from_str(&format!("serialize search result: {e}")))
@@ -113,7 +120,6 @@ struct SearchPayload {
     score: i32,
     depth: u8,
     nodes: u64,
-    elapsed_ms: u64,
 }
 
 #[derive(serde::Serialize)]

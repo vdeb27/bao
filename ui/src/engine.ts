@@ -180,15 +180,14 @@ export type SearchResultJson = {
   score: number;
   depth: number;
   nodes: number;
-  elapsed_ms: number;
 };
 
 export function searchHeuristic(
   state: Uint8Array,
   maxDepth: number,
-  timeBudgetMs: number,
+  maxNodes: number,
 ): SearchResultJson {
-  const raw = wasmSearchHeuristic(state, maxDepth, timeBudgetMs);
+  const raw = wasmSearchHeuristic(state, maxDepth, maxNodes);
   return JSON.parse(raw) as SearchResultJson;
 }
 
