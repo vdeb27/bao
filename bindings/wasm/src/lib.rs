@@ -3,9 +3,10 @@
 //! as JSON strings parsed/serialised browser-side.
 
 use bao_engine::{
-    apply as engine_apply, encode_ban, legal_moves as engine_legal_moves, zobrist_key, BoardState,
-    Move, Variant,
+    apply as engine_apply, encode_ban, legal_moves as engine_legal_moves, search as engine_search,
+    zobrist_key, BoardState, HeuristicEval, Move, SearchOptions, Variant,
 };
+use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
 fn parse_variant(name: &str) -> Result<Variant, JsValue> {
@@ -76,6 +77,43 @@ pub fn zobrist(state_bytes: &[u8]) -> Result<u64, JsValue> {
 pub fn state_to_json(state_bytes: &[u8]) -> Result<String, JsValue> {
     let state = unpack_state(state_bytes)?;
     serde_json::to_string(&state).map_err(|e| JsValue::from_str(&format!("serialize state: {e}")))
+}
+
+/// Search for the best move with the handcrafted heuristic evaluator.
+/// Returns a JSON object: `{ move: <move_json|null>, score: <i32>, depth,
+/// nodes, elapsed_ms }`. Hard-bound by either `max_depth` or
+/// `time_budget_ms`, whichever runs out first.
+#[wasm_bindgen]
+pub fn search_heuristic(
+    state_bytes: &[u8],
+    max_depth: u8,
+    time_budget_ms: u32,
+) -> Result<String, JsValue> {
+    let state = unpack_state(state_bytes)?;
+    let eval = HeuristicEval::new();
+    let opts = SearchOptions {
+        max_depth,
+        time_budget: Duration::from_millis(time_budget_ms as u64),
+    };
+    let r = engine_search(&state, &eval, opts);
+    let payload = SearchPayload {
+        best_move: r.best_move.map(|m| serde_json::to_value(&m).unwrap()),
+        score: r.score,
+        depth: r.depth_reached,
+        nodes: r.nodes,
+        elapsed_ms: r.elapsed.as_millis() as u64,
+    };
+    serde_json::to_string(&payload)
+        .map_err(|e| JsValue::from_str(&format!("serialize search result: {e}")))
+}
+
+#[derive(serde::Serialize)]
+struct SearchPayload {
+    best_move: Option<serde_json::Value>,
+    score: i32,
+    depth: u8,
+    nodes: u64,
+    elapsed_ms: u64,
 }
 
 #[derive(serde::Serialize)]

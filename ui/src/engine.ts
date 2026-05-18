@@ -7,6 +7,7 @@ import init, {
   engine_version,
   legal_moves as wasmLegalMoves,
   new_state as wasmNewState,
+  search_heuristic as wasmSearchHeuristic,
   state_to_json as wasmStateToJson,
   zobrist as wasmZobrist,
 } from "@bao/engine";
@@ -172,6 +173,23 @@ export function stateToJson(state: Uint8Array): BoardState {
 
 export function zobrist(state: Uint8Array): bigint {
   return wasmZobrist(state);
+}
+
+export type SearchResultJson = {
+  best_move: Move | null;
+  score: number;
+  depth: number;
+  nodes: number;
+  elapsed_ms: number;
+};
+
+export function searchHeuristic(
+  state: Uint8Array,
+  maxDepth: number,
+  timeBudgetMs: number,
+): SearchResultJson {
+  const raw = wasmSearchHeuristic(state, maxDepth, timeBudgetMs);
+  return JSON.parse(raw) as SearchResultJson;
 }
 
 export function phaseTag(phase: Phase): "Namu" | "Mtaji" {

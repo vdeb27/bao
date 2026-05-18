@@ -1,22 +1,27 @@
 import { phaseTag, substate, substateTag, type BoardState, type Variant } from "../engine";
 import { LOCALES, useI18n, useT, type Locale } from "../i18n";
 import { useSound } from "../sound";
+import { useOpponentStore, type OpponentKind } from "../store/opponentStore";
 
 type Props = {
   view: BoardState;
   error: string | null;
+  thinking: boolean;
   shareUrl: () => string;
   onNewGame: (variant: Variant) => void;
 };
 
 const PLAYER_KEYS = ["south", "north"];
 
-export function StatusBar({ view, error, shareUrl, onNewGame }: Props) {
+export function StatusBar({ view, error, thinking, shareUrl, onNewGame }: Props) {
   const t = useT();
   const locale = useI18n((s) => s.locale);
   const setLocale = useI18n((s) => s.setLocale);
   const soundEnabled = useSound((s) => s.enabled);
   const toggleSound = useSound((s) => s.toggle);
+  const opponentSouth = useOpponentStore((s) => s.south);
+  const opponentNorth = useOpponentStore((s) => s.north);
+  const setOpponent = useOpponentStore((s) => s.setOpponent);
 
   const phaseName = phaseTag(view.phase);
   const subTag = substateTag(substate(view.phase));
@@ -43,6 +48,7 @@ export function StatusBar({ view, error, shareUrl, onNewGame }: Props) {
           <>
             <span>
               {t("toMove")}: <strong>{t(PLAYER_KEYS[view.active])}</strong>
+              {thinking && <em className="bao-thinking"> · {t("thinking")}</em>}
             </span>
             <span>
               {t("phase")}: <strong>{phaseName}</strong>
@@ -53,6 +59,28 @@ export function StatusBar({ view, error, shareUrl, onNewGame }: Props) {
             </span>
           </>
         )}
+      </div>
+      <div className="bao-opponents">
+        <label>
+          <span>{t("opponentSouth")}</span>
+          <select
+            value={opponentSouth}
+            onChange={(e) => setOpponent(0, e.target.value as OpponentKind)}
+          >
+            <option value="human">{t("opponentHuman")}</option>
+            <option value="jifunzo">{t("opponentJifunzo")}</option>
+          </select>
+        </label>
+        <label>
+          <span>{t("opponentNorth")}</span>
+          <select
+            value={opponentNorth}
+            onChange={(e) => setOpponent(1, e.target.value as OpponentKind)}
+          >
+            <option value="human">{t("opponentHuman")}</option>
+            <option value="jifunzo">{t("opponentJifunzo")}</option>
+          </select>
+        </label>
       </div>
       <div className="bao-statusbar-right">
         <button onClick={() => onNewGame("Kiswahili")}>{t("newKiswahili")}</button>

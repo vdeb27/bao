@@ -12,6 +12,7 @@ import {
   substateTag,
   type Move,
 } from "./engine";
+import { useAIPlayer } from "./hooks/useAIPlayer";
 import { useAnimationDriver } from "./hooks/useAnimationDriver";
 import { useOrientation } from "./hooks/useOrientation";
 import { useT } from "./i18n";
@@ -41,6 +42,7 @@ export function App() {
   } = useGameStore();
 
   useAnimationDriver();
+  const thinking = useAIPlayer(6, 400);
 
   // Auto-resolve kichwa selections when there's only one legal option.
   // The substate-prompt UI is suppressed in that case; the player doesn't
@@ -90,6 +92,7 @@ export function App() {
       <StatusBar
         view={display}
         error={error}
+        thinking={thinking}
         shareUrl={() => shareUrl(state)}
         onNewGame={(v) => {
           setAmbiguous(null);

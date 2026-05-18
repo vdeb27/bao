@@ -43,6 +43,11 @@ const messages: Record<Locale, Dict> = {
     eventNamuPlace: "Speler {player} plaatst kete uit ghala",
     eventCapture: "Capture op pit {pit}",
     eventGameOver: "Spel afgelopen — {player} wint",
+    opponentSouth: "Zuid speler",
+    opponentNorth: "Noord speler",
+    opponentHuman: "Mens",
+    opponentJifunzo: "Jifunzo (AI)",
+    thinking: "Denkt na…",
   },
   en: {
     loading: "Loading engine…",
@@ -77,6 +82,11 @@ const messages: Record<Locale, Dict> = {
     eventNamuPlace: "Player {player} places kete from ghala",
     eventCapture: "Capture at pit {pit}",
     eventGameOver: "Game over — {player} wins",
+    opponentSouth: "South player",
+    opponentNorth: "North player",
+    opponentHuman: "Human",
+    opponentJifunzo: "Jifunzo (AI)",
+    thinking: "Thinking…",
   },
   sw: {
     loading: "Inapakia engine…",
@@ -111,6 +121,11 @@ const messages: Record<Locale, Dict> = {
     eventNamuPlace: "Mchezaji {player} aweka kete kutoka ghala",
     eventCapture: "Kula kwenye shimo {pit}",
     eventGameOver: "Mchezo umeisha — {player} ameshinda",
+    opponentSouth: "Kusini mchezaji",
+    opponentNorth: "Kaskazini mchezaji",
+    opponentHuman: "Mtu",
+    opponentJifunzo: "Jifunzo (AI)",
+    thinking: "Anafikiri…",
   },
 };
 

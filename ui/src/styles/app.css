@@ -378,6 +378,39 @@ body {
   cursor: pointer;
 }
 
+.bao-opponents {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 18px;
+  padding-top: 6px;
+  border-top: 1px solid #4a3826;
+  font-size: 12px;
+  color: #c8b08a;
+  flex-wrap: wrap;
+}
+
+.bao-opponents label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bao-opponents select {
+  background: #54402c;
+  color: #f3e1bd;
+  border: 1px solid #6b5440;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.bao-thinking {
+  color: #facc15;
+  margin-left: 4px;
+  font-style: italic;
+}
+
 .bao-sr-only {
   position: absolute;
   width: 1px;
