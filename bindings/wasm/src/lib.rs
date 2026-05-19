@@ -102,6 +102,9 @@ pub fn search_heuristic(
     let opts = SearchOptions {
         max_depth,
         max_nodes: max_nodes as u64,
+        // 64k slots × ~16 bytes = ~1 MB. Plenty for browser play, well
+        // under the wasm linear-memory default.
+        tt_slots: 1 << 16,
     };
     let r = engine_search(&state, &eval, opts);
     let payload = SearchPayload {

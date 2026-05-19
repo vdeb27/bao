@@ -18,6 +18,9 @@ use crate::moves::Move;
 use crate::rules::{apply, legal_moves};
 
 pub mod alphabeta;
+pub mod tt;
+
+pub use tt::{Bound, TranspositionTable};
 
 /// Scores ≥ MATE_THRESHOLD represent forced wins (and ≤ -MATE_THRESHOLD
 /// forced losses), with the distance-to-mate encoded as `MATE_SCORE - ply`.
@@ -29,11 +32,14 @@ pub const MATE_THRESHOLD: i32 = 900_000;
 /// out first ends the search. We use a node budget rather than wall-clock
 /// because `std::time::Instant` panics under `wasm32-unknown-unknown`. The
 /// caller picks a node count appropriate for their target's throughput
-/// (≈100 k nodes ≈ a few hundred ms on a desktop CPU).
+/// (≈100 k nodes ≈ a few hundred ms on a desktop CPU). `tt_slots` is the
+/// transposition-table size in entries (rounded up to a power of two,
+/// ≈16 bytes each); 0 disables the TT entirely.
 #[derive(Debug, Clone, Copy)]
 pub struct SearchOptions {
     pub max_depth: u8,
     pub max_nodes: u64,
+    pub tt_slots: usize,
 }
 
 impl SearchOptions {
@@ -41,12 +47,14 @@ impl SearchOptions {
         Self {
             max_depth: d,
             max_nodes: u64::MAX,
+            tt_slots: 1 << 16,
         }
     }
     pub fn nodes(n: u64) -> Self {
         Self {
             max_depth: 64,
             max_nodes: n,
+            tt_slots: 1 << 16,
         }
     }
 }
@@ -67,6 +75,11 @@ pub fn search<E: Evaluator>(
     eval: &E,
     opts: SearchOptions,
 ) -> SearchResult {
+    let mut tt = if opts.tt_slots > 0 {
+        Some(TranspositionTable::new(opts.tt_slots))
+    } else {
+        None
+    };
     let mut best = SearchResult {
         best_move: None,
         score: 0,
@@ -80,11 +93,10 @@ pub fn search<E: Evaluator>(
         if remaining == 0 {
             break;
         }
-        let mut ctx = alphabeta::SearchCtx::new(eval, remaining);
+        let mut ctx = alphabeta::SearchCtx::new(eval, remaining, tt.as_mut());
         let r = alphabeta::root_negamax(&mut ctx, state, depth);
         total_nodes = total_nodes.saturating_add(ctx.nodes);
         if ctx.aborted {
-            // Abandon partial iteration — keep the previous depth's result.
             break;
         }
         best = SearchResult {
@@ -102,23 +114,28 @@ pub fn search<E: Evaluator>(
 }
 
 /// Convenience: orders captures (Namu/Mtaji) before resolution moves
-/// (Kichwa/Safari). For now the captures themselves aren't graded; a future
-/// slice introduces MVV-LVA on `kete_taken`.
-pub(crate) fn order_moves(state: &BoardState, moves: &mut [Move]) {
-    moves.sort_by_key(|m| match m {
-        // Kichwa and Safari resolve substates; ranking them last is fine.
-        Move::Kichwa(_) | Move::Safari { .. } => 2,
-        Move::Namu { col, .. } => {
-            let opp = state.opponent(state.active) as usize;
-            // Mirror per the capture-mirror rule (see rules::opp_mbele).
-            let opp_idx = 7usize.saturating_sub(*col as usize);
-            if state.sides[opp].vichwa[opp_idx] >= 1 {
-                0 // potential capture
-            } else {
-                1 // takata
-            }
+/// (Kichwa/Safari). When a `tt_move` is supplied it takes priority over
+/// everything else so the search explores the previously-best line first.
+/// For now the captures themselves aren't graded; a future slice introduces
+/// MVV-LVA on `kete_taken`.
+pub(crate) fn order_moves(state: &BoardState, moves: &mut [Move], tt_move: Option<Move>) {
+    moves.sort_by_key(|m| {
+        if tt_move.is_some_and(|tm| tm == *m) {
+            return -1;
         }
-        Move::Mtaji { .. } => 1,
+        match m {
+            Move::Kichwa(_) | Move::Safari { .. } => 2,
+            Move::Namu { col, .. } => {
+                let opp = state.opponent(state.active) as usize;
+                let opp_idx = 7usize.saturating_sub(*col as usize);
+                if state.sides[opp].vichwa[opp_idx] >= 1 {
+                    0
+                } else {
+                    1
+                }
+            }
+            Move::Mtaji { .. } => 1,
+        }
     });
 }
 
