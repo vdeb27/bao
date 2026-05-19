@@ -33,6 +33,8 @@ data/elo.json
 # Trained model artifacts
 ui/public/models/*.onnx
 training/checkpoints/
+training/data/
+*.bin
 
 # IDE / OS
 .vscode/
