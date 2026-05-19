@@ -70,6 +70,10 @@ pub struct SearchResult {
 /// Top-level entry. Runs iterative deepening from depth 1 upward and returns
 /// the deepest fully-completed iteration. If time runs out mid-iteration the
 /// previous iteration's best move is returned.
+/// Aspiration window half-width (in centi-kete) that the root search
+/// brackets around the previous iteration's score from depth 4 onwards.
+const ASPIRATION_INITIAL: i32 = 25;
+
 pub fn search<E: Evaluator>(
     state: &BoardState,
     eval: &E,
@@ -87,24 +91,79 @@ pub fn search<E: Evaluator>(
         nodes: 0,
     };
     let mut total_nodes: u64 = 0;
+    let mut prev_score: i32 = 0;
 
     for depth in 1..=opts.max_depth {
         let remaining = opts.max_nodes.saturating_sub(total_nodes);
         if remaining == 0 {
             break;
         }
-        let mut ctx = alphabeta::SearchCtx::new(eval, remaining, tt.as_mut());
-        let r = alphabeta::root_negamax(&mut ctx, state, depth);
-        total_nodes = total_nodes.saturating_add(ctx.nodes);
-        if ctx.aborted {
+
+        // Aspiration loop: start with a narrow window around prev_score; on
+        // a fail-low/high, widen exponentially and re-run.
+        let mut window = ASPIRATION_INITIAL;
+        let mut alpha = if depth >= 4 {
+            prev_score - window
+        } else {
+            -MATE_SCORE
+        };
+        let mut beta = if depth >= 4 {
+            prev_score + window
+        } else {
+            MATE_SCORE
+        };
+
+        let mut r = alphabeta::RootResult {
+            best_move: None,
+            score: 0,
+        };
+        let mut consumed_total: u64 = 0;
+        let mut attempts = 0;
+        loop {
+            let budget = remaining.saturating_sub(consumed_total);
+            if budget == 0 {
+                break;
+            }
+            let mut ctx = alphabeta::SearchCtx::new(eval, budget, tt.as_mut());
+            r = alphabeta::root_negamax_window(&mut ctx, state, depth, alpha, beta);
+            consumed_total = consumed_total.saturating_add(ctx.nodes);
+            if ctx.aborted {
+                break;
+            }
+            attempts += 1;
+            // Full-window already — no further widening possible.
+            if alpha <= -MATE_SCORE && beta >= MATE_SCORE {
+                break;
+            }
+            // Cap retries so a pathological eval can't spin us forever.
+            if attempts >= 4 {
+                alpha = -MATE_SCORE;
+                beta = MATE_SCORE;
+                continue;
+            }
+            if r.score <= alpha {
+                alpha = alpha.saturating_sub(window).max(-MATE_SCORE);
+                window = window.saturating_mul(2);
+            } else if r.score >= beta {
+                beta = beta.saturating_add(window).min(MATE_SCORE);
+                window = window.saturating_mul(2);
+            } else {
+                break;
+            }
+        }
+        total_nodes = total_nodes.saturating_add(consumed_total);
+        if r.best_move.is_none() {
             break;
         }
+
         best = SearchResult {
             best_move: r.best_move,
             score: r.score,
             depth_reached: depth,
             nodes: total_nodes,
         };
+        prev_score = r.score;
+
         if r.score.abs() >= MATE_THRESHOLD {
             break;
         }

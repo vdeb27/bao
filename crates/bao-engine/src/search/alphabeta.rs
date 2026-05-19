@@ -17,6 +17,18 @@ use super::tt::{pack_move, unpack_move, Bound, TranspositionTable};
 use super::{order_moves, try_apply, MATE_SCORE, MATE_THRESHOLD};
 
 const QSEARCH_MAX_DEPTH: u8 = 8;
+/// Minimum depth at which late-move reductions activate.
+const LMR_MIN_DEPTH: u8 = 3;
+/// Move-list index from which LMR starts applying.
+const LMR_MIN_MOVE_IDX: usize = 3;
+
+/// Stockfish-conform reduction table. R = round(ln(depth) × ln(idx) / 2.25).
+/// Precomputed up to depth 16 / idx 32 — beyond that we clamp at the edge.
+fn lmr_reduction(depth: u8, idx: usize) -> u8 {
+    let d = (depth as f32).max(1.0).ln();
+    let i = (idx as f32).max(1.0).ln();
+    (d * i / 2.25).max(0.0) as u8
+}
 
 pub(crate) struct SearchCtx<'a, E: Evaluator> {
     pub(crate) eval: &'a E,
@@ -51,15 +63,17 @@ impl<'a, E: Evaluator> SearchCtx<'a, E> {
     }
 }
 
-pub(crate) struct RootResult {
-    pub(crate) best_move: Option<Move>,
-    pub(crate) score: i32,
+pub struct RootResult {
+    pub best_move: Option<Move>,
+    pub score: i32,
 }
 
-pub(crate) fn root_negamax<E: Evaluator>(
+pub(crate) fn root_negamax_window<E: Evaluator>(
     ctx: &mut SearchCtx<'_, E>,
     state: &crate::board::BoardState,
     depth: u8,
+    mut alpha: i32,
+    beta: i32,
 ) -> RootResult {
     if let Some(w) = state.winner {
         let score = if w == state.active { MATE_SCORE } else { -MATE_SCORE };
@@ -85,8 +99,6 @@ pub(crate) fn root_negamax<E: Evaluator>(
         .and_then(|e| unpack_move(e.best_move));
     order_moves(state, &mut moves, tt_move);
 
-    let mut alpha = -MATE_SCORE;
-    let beta = MATE_SCORE;
     let mut best_score = -MATE_SCORE;
     let mut best_move: Option<Move> = None;
 
@@ -169,15 +181,41 @@ fn negamax<E: Evaluator>(
 
     let mut best = -MATE_SCORE;
     let mut best_mv: Option<Move> = None;
-    for mv in moves {
+    for (idx, mv) in moves.into_iter().enumerate() {
         let Some(child) = try_apply(state, mv) else { continue };
-        let score = if child.active == state.active {
-            negamax(ctx, &child, depth - 1, alpha, beta)
+        // LMR: reduce the search depth for late, non-capture-like moves.
+        // Substate resolutions (Kichwa/Safari) and TT moves keep full depth.
+        let reduce = if depth >= LMR_MIN_DEPTH
+            && idx >= LMR_MIN_MOVE_IDX
+            && !is_capture_like(state, mv)
+            && !matches!(mv, Move::Kichwa(_) | Move::Safari { .. })
+            && Some(mv) != tt_move
+        {
+            lmr_reduction(depth, idx)
         } else {
-            -negamax(ctx, &child, depth - 1, -beta, -alpha)
+            0
+        };
+        let reduced_depth = depth.saturating_sub(1 + reduce);
+
+        let same_player = child.active == state.active;
+        let mut score = if same_player {
+            negamax(ctx, &child, reduced_depth, alpha, beta)
+        } else {
+            -negamax(ctx, &child, reduced_depth, -beta, -alpha)
         };
         if ctx.aborted {
             return 0;
+        }
+        // Re-search at full depth when the reduced search came back optimistic.
+        if reduce > 0 && score > alpha {
+            score = if same_player {
+                negamax(ctx, &child, depth - 1, alpha, beta)
+            } else {
+                -negamax(ctx, &child, depth - 1, -beta, -alpha)
+            };
+            if ctx.aborted {
+                return 0;
+            }
         }
         if score > best {
             best = score;
@@ -247,28 +285,7 @@ fn quiescence<E: Evaluator>(
 
     let mut explored = 0;
     for mv in moves {
-        let is_capture_like = match mv {
-            Move::Kichwa(_) | Move::Safari { .. } => true,
-            Move::Mtaji { pit, dir } => {
-                let count =
-                    state.sides[state.active as usize].vichwa[pit as usize] as i32;
-                if !(2..=15).contains(&count) {
-                    false
-                } else {
-                    let land =
-                        crate::rules::landing(pit, dir, count as u8) as usize;
-                    let opp = state.opponent(state.active) as usize;
-                    land < crate::board::MBELE_LEN
-                        && state.sides[state.active as usize].vichwa[land] >= 1
-                        && state.sides[opp].vichwa[7 - land] >= 1
-                }
-            }
-            Move::Namu { col, .. } => {
-                let opp = state.opponent(state.active) as usize;
-                state.sides[opp].vichwa[(7 - col) as usize] >= 1
-            }
-        };
-        if !is_capture_like && !in_substate {
+        if !is_capture_like(state, mv) && !in_substate {
             continue;
         }
         let Some(child) = try_apply(state, mv) else { continue };
@@ -292,10 +309,33 @@ fn quiescence<E: Evaluator>(
     if in_substate && explored == 0 {
         return stand_pat;
     }
-    // Suppress unused-variable warnings in mate threshold tests that don't
-    // touch MATE_THRESHOLD via this function.
     let _ = MATE_THRESHOLD;
     alpha
+}
+
+/// True if `mv` either captures, has captured-by-substate-continuation
+/// semantics (Kichwa, Safari), or is a Mtaji whose landing pit triggers a
+/// kula. Used by both quiescence and the LMR gate so a "captury" move
+/// isn't reduced.
+fn is_capture_like(state: &crate::board::BoardState, mv: Move) -> bool {
+    match mv {
+        Move::Kichwa(_) | Move::Safari { .. } => true,
+        Move::Mtaji { pit, dir } => {
+            let count = state.sides[state.active as usize].vichwa[pit as usize] as i32;
+            if !(2..=15).contains(&count) {
+                return false;
+            }
+            let land = crate::rules::landing(pit, dir, count as u8) as usize;
+            let opp = state.opponent(state.active) as usize;
+            land < crate::board::MBELE_LEN
+                && state.sides[state.active as usize].vichwa[land] >= 1
+                && state.sides[opp].vichwa[7 - land] >= 1
+        }
+        Move::Namu { col, .. } => {
+            let opp = state.opponent(state.active) as usize;
+            state.sides[opp].vichwa[(7 - col) as usize] >= 1
+        }
+    }
 }
 
 // Extension: Bound::from_u8 is private to the tt module; mirror it locally
