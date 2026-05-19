@@ -246,12 +246,11 @@ mod tests {
         // empties North's only mbele kete → hamna → South wins.
         use crate::board::{Phase, Side, Substate, PITS_PER_SIDE};
         let mut state = BoardState::new(Variant::Kiswahili);
-        // Wipe pieces; rebuild a clean 1-mbele-kete-on-each-side setup.
         for s in &mut state.sides {
             *s = Side {
                 vichwa: [0u8; PITS_PER_SIDE],
                 ghala: s.ghala,
-                nyumba_owned: false, // remove nyumba to simplify
+                nyumba_owned: false,
                 nyumba_col: 4,
             };
         }
@@ -265,6 +264,96 @@ mod tests {
         assert!(
             r.score >= MATE_THRESHOLD,
             "expected forced-win score, got {}",
+            r.score
+        );
+    }
+
+    #[test]
+    fn search_finds_mate_in_one_via_mtaji_kula() {
+        // Mtaji-phase mate. South pit 5 has 3 kete; sowing Ccw lands at
+        // own.mbele[2]. Geometric opposite is opp.vichwa[5], which is
+        // North's only mbele kete → hamna after capture.
+        use crate::board::{Phase, Side, Substate, PITS_PER_SIDE};
+        let mut state = BoardState::new(Variant::Kiswahili);
+        for s in &mut state.sides {
+            *s = Side {
+                vichwa: [0u8; PITS_PER_SIDE],
+                ghala: 0,
+                nyumba_owned: false,
+                nyumba_col: 4,
+            };
+        }
+        state.sides[0].vichwa[5] = 3;
+        state.sides[0].vichwa[2] = 1;
+        state.sides[1].vichwa[5] = 1;
+        state.phase = Phase::Mtaji(Substate::AwaitMove);
+
+        let e = HeuristicEval::new();
+        let r = search(&state, &e, SearchOptions::depth(4));
+        assert!(r.best_move.is_some());
+        assert!(
+            r.score >= MATE_THRESHOLD,
+            "expected forced-win score, got {}",
+            r.score
+        );
+    }
+
+    #[test]
+    fn search_finds_mate_in_one_kichwa_kimbi() {
+        // Force a kimbi-side kichwa (only one legal choice). North has
+        // one mbele kete opposite South's preplace at col 1 (mirror of 6).
+        // Namu placement at col 1 triggers a capture; kichwa is forced
+        // Left (RULES.md §6.3, kimbi cols 0,1 → Left only).
+        use crate::board::{Phase, Side, Substate, PITS_PER_SIDE};
+        let mut state = BoardState::new(Variant::Kiswahili);
+        for s in &mut state.sides {
+            *s = Side {
+                vichwa: [0u8; PITS_PER_SIDE],
+                ghala: s.ghala,
+                nyumba_owned: false,
+                nyumba_col: 4,
+            };
+        }
+        state.sides[0].vichwa[1] = 1;
+        state.sides[1].vichwa[6] = 1;
+        state.phase = Phase::Namu(Substate::AwaitMove);
+
+        let e = HeuristicEval::new();
+        let r = search(&state, &e, SearchOptions::depth(4));
+        assert!(r.best_move.is_some());
+        assert!(
+            r.score >= MATE_THRESHOLD,
+            "expected forced-win score, got {}",
+            r.score
+        );
+    }
+
+    #[test]
+    fn search_avoids_obvious_loss() {
+        // If only one mbele kete remains on South's side and it's about to
+        // be captured by North, the score from South's perspective should
+        // be deeply negative when North is to move.
+        use crate::board::{Phase, Side, Substate, PITS_PER_SIDE};
+        let mut state = BoardState::new(Variant::Kiswahili);
+        for s in &mut state.sides {
+            *s = Side {
+                vichwa: [0u8; PITS_PER_SIDE],
+                ghala: s.ghala,
+                nyumba_owned: false,
+                nyumba_col: 4,
+            };
+        }
+        state.sides[0].vichwa[4] = 1; // South's only mbele kete
+        state.sides[1].vichwa[3] = 1; // North preplace (mirror of 4 = 3)
+        state.active = 1; // North to move
+        state.phase = Phase::Namu(Substate::AwaitMove);
+
+        let e = HeuristicEval::new();
+        let r = search(&state, &e, SearchOptions::depth(4));
+        // From North's perspective this is a forced win.
+        assert!(
+            r.score >= MATE_THRESHOLD,
+            "expected forced-win for North, got {}",
             r.score
         );
     }
