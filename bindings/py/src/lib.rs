@@ -4,9 +4,11 @@
 //! the JSON, the engine remains the source of truth.
 
 use bao_engine::{
-    apply as engine_apply, encode_ban, legal_moves as engine_legal_moves, zobrist_key, BoardState,
-    Move, Variant,
+    apply as engine_apply, encode_ban, encode_features as engine_encode_features,
+    legal_moves as engine_legal_moves, search as engine_search, zobrist_key, BoardState,
+    HeuristicEval, Move, SearchOptions, Variant, FEATURE_LEN,
 };
+use bao_engine::shard::{ShardHeader, HEADER_LEN};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -77,6 +79,61 @@ fn engine_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Encode a packed BoardState into the fixed-size feature vector used by
+/// the training pipeline. See `docs/feature_layout.md`. Returned as raw
+/// bytes; callers should `np.frombuffer(..., dtype=np.uint8)` for vector ops.
+#[pyfunction]
+fn encode_features(py: Python<'_>, state_bytes: &[u8]) -> PyResult<PyObject> {
+    let state = unpack_state(state_bytes)?;
+    let f = engine_encode_features(&state);
+    Ok(PyBytes::new_bound(py, &f).into())
+}
+
+#[pyfunction]
+fn feature_len() -> usize {
+    FEATURE_LEN
+}
+
+/// Search with the handcrafted heuristic and return `(score, depth, nodes)`.
+/// Centi-kete from the active-player perspective at the input state. The
+/// best move is intentionally **not** returned — the training pipeline only
+/// needs the label.
+#[pyfunction]
+fn search_heuristic(
+    state_bytes: &[u8],
+    max_depth: u8,
+    max_nodes: u64,
+) -> PyResult<(i32, u8, u64)> {
+    let state = unpack_state(state_bytes)?;
+    let eval = HeuristicEval::new();
+    let opts = SearchOptions {
+        max_depth,
+        max_nodes,
+        tt_slots: 1 << 16,
+    };
+    let r = engine_search(&state, &eval, opts);
+    Ok((r.score, r.depth_reached, r.nodes))
+}
+
+/// Parse a shard file's 32-byte header. Returns
+/// `(version, feature_len, record_stride, n_records, label_dtype)`.
+#[pyfunction]
+fn read_shard_header(bytes: &[u8]) -> PyResult<(u16, u16, u16, u32, u8)> {
+    if bytes.len() < HEADER_LEN {
+        return Err(PyValueError::new_err("header truncated"));
+    }
+    let mut cursor = std::io::Cursor::new(bytes);
+    let h = ShardHeader::read_from(&mut cursor)
+        .map_err(|e| PyValueError::new_err(format!("shard header: {e}")))?;
+    Ok((
+        h.version,
+        h.feature_len,
+        h.record_stride,
+        h.n_records,
+        h.label_dtype,
+    ))
+}
+
 #[pymodule]
 fn bao_engine_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(new_state, m)?)?;
@@ -85,5 +142,9 @@ fn bao_engine_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(zobrist, m)?)?;
     m.add_function(wrap_pyfunction!(state_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(engine_version, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_features, m)?)?;
+    m.add_function(wrap_pyfunction!(feature_len, m)?)?;
+    m.add_function(wrap_pyfunction!(search_heuristic, m)?)?;
+    m.add_function(wrap_pyfunction!(read_shard_header, m)?)?;
     Ok(())
 }

@@ -8,11 +8,13 @@
 pub mod board;
 pub mod eval;
 pub mod events;
+pub mod features;
 pub mod mcts;
 pub mod moves;
 pub mod notation;
 pub mod rules;
 pub mod search;
+pub mod shard;
 pub mod variant;
 pub mod zobrist;
 
@@ -23,6 +25,8 @@ pub use board::{
     PACK_VERSION, PITS_PER_SIDE, TOTAL_KETE,
 };
 pub use eval::{Evaluator, HeuristicEval, HeuristicWeights};
+pub use features::{clip_label, encode_features, FEATURE_LEN, LABEL_CLIP};
+pub use shard::{read_shard, ShardHeader, ShardWriter, HEADER_LEN, RECORD_STRIDE, SHARD_VERSION};
 pub use events::MoveEvent;
 pub use moves::{KichwaSide, Move};
 pub use notation::encode as encode_ban;
