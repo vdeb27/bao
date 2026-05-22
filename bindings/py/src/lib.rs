@@ -9,6 +9,9 @@ use bao_engine::{
     HeuristicEval, Move, SearchOptions, Variant, FEATURE_LEN,
 };
 use bao_engine::shard::{ShardHeader, HEADER_LEN};
+use bao_engine::eval::nnue::transformer as nnue_transformer;
+use bao_engine::eval::nnue::NnueEval;
+use bao_engine::eval::Evaluator;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -134,6 +137,45 @@ fn read_shard_header(bytes: &[u8]) -> PyResult<(u16, u16, u16, u32, u8)> {
     ))
 }
 
+/// Return the sparse NNUE feature indices for a packed BoardState.
+/// Indices live in 0..N_FEATURES (=280); see `docs/nnue_format.md`.
+#[pyfunction]
+fn nnue_indices(state_bytes: &[u8]) -> PyResult<Vec<u16>> {
+    let state = unpack_state(state_bytes)?;
+    Ok(nnue_transformer::indices(&state))
+}
+
+/// Return sparse NNUE indices given a 80-byte dense feature vector. Useful
+/// for converting a shard row to the trainer's sparse representation
+/// without going through BoardState.
+#[pyfunction]
+fn nnue_indices_from_features(features: &[u8]) -> PyResult<Vec<u16>> {
+    if features.len() != FEATURE_LEN {
+        return Err(PyValueError::new_err(format!(
+            "expected {FEATURE_LEN}-byte features, got {}",
+            features.len()
+        )));
+    }
+    let mut buf = [0u8; FEATURE_LEN];
+    buf.copy_from_slice(features);
+    Ok(nnue_transformer::indices_from_features(&buf))
+}
+
+/// Load a `.nnue` blob and evaluate one state. Returns centi-kete score from
+/// the active player's POV. For Python↔Rust roundtrip validation.
+#[pyfunction]
+fn nnue_evaluate(nnue_bytes: &[u8], state_bytes: &[u8]) -> PyResult<i32> {
+    let state = unpack_state(state_bytes)?;
+    let eval = NnueEval::from_bytes(nnue_bytes)
+        .map_err(|e| PyValueError::new_err(format!("nnue load: {e}")))?;
+    Ok(eval.eval(&state))
+}
+
+#[pyfunction]
+fn nnue_n_features() -> usize {
+    nnue_transformer::N_FEATURES
+}
+
 #[pymodule]
 fn bao_engine_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(new_state, m)?)?;
@@ -146,5 +188,9 @@ fn bao_engine_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(feature_len, m)?)?;
     m.add_function(wrap_pyfunction!(search_heuristic, m)?)?;
     m.add_function(wrap_pyfunction!(read_shard_header, m)?)?;
+    m.add_function(wrap_pyfunction!(nnue_indices, m)?)?;
+    m.add_function(wrap_pyfunction!(nnue_indices_from_features, m)?)?;
+    m.add_function(wrap_pyfunction!(nnue_n_features, m)?)?;
+    m.add_function(wrap_pyfunction!(nnue_evaluate, m)?)?;
     Ok(())
 }

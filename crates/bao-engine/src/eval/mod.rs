@@ -5,6 +5,7 @@
 use crate::board::BoardState;
 
 pub mod heuristic;
+pub mod nnue;
 
 pub use heuristic::{HeuristicEval, HeuristicWeights};
 
