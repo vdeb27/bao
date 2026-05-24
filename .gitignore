@@ -36,6 +36,10 @@ training/checkpoints/
 training/data/
 *.bin
 
+# Claude Code session state (don't commit per-session files)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
 # IDE / OS
 .vscode/
 .idea/
