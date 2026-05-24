@@ -1,4 +1,11 @@
-# NNUE Format (Iter-1)
+# NNUE Format (v2, Iter-1)
+
+**Version 2** (current): hidden weights are int16 at scale 64 (fp range
+±512). v1 had int8 hidden weights which capped fp range at ±1.98 — too
+tight for trained L3 weights that need to span ±50 for full ±8000 cent
+output range. Bumping i8→i16 adds ~17 KB to the model. The loader rejects
+v1 blobs.
+
 
 ## Feature transformer (280 features)
 
@@ -67,7 +74,7 @@ sparse-indices (35..38 active in 0..280)
 | `WEIGHT_SCALE_L0` | 64 | int16 = round(fp32 * 64); accumulator |
 | `WEIGHT_SCALE_HIDDEN` | 64 | int8 = round(fp32 * 64) for L1..L3 |
 | `ACTIVATION_CLIP` | 127 | ClippedReLU upper bound |
-| `OUTPUT_SCALE` | 16 | divides L3-output to yield centi-kete |
+| `OUTPUT_SCALE` | 1 | divides L3-output to yield centi-kete (network output is centi-kete directly) |
 
 Final score: `score_centikete = clamp(L3_output / OUTPUT_SCALE, ±LABEL_CLIP)`.
 

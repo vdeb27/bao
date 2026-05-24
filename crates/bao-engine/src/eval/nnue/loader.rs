@@ -20,13 +20,13 @@ use std::io::{Cursor, Read};
 use super::transformer::N_FEATURES;
 
 pub const MAGIC: &[u8; 8] = b"BAONNUE\0";
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 pub const ACCUMULATOR_DIM: usize = 512;
 pub const HIDDEN_DIM: usize = 32;
 pub const WEIGHT_SCALE_L0: i32 = 64;
 pub const WEIGHT_SCALE_HIDDEN: i32 = 64;
 pub const ACTIVATION_CLIP: i32 = 127;
-pub const OUTPUT_SCALE: i32 = 16;
+pub const OUTPUT_SCALE: i32 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -46,11 +46,11 @@ pub struct NnueModel {
     pub n_features: usize,
     pub l0_weight: Vec<i16>, // (n_features × accumulator_dim)
     pub l0_bias: Vec<i16>,   // (accumulator_dim)
-    pub l1_weight: Vec<i8>,  // (accumulator_dim × hidden_dim)
+    pub l1_weight: Vec<i16>, // (accumulator_dim × hidden_dim)
     pub l1_bias: Vec<i32>,
-    pub l2_weight: Vec<i8>,
+    pub l2_weight: Vec<i16>,
     pub l2_bias: Vec<i32>,
-    pub l3_weight: Vec<i8>,
+    pub l3_weight: Vec<i16>,
     pub l3_bias: Vec<i32>,
 }
 
@@ -70,12 +70,6 @@ fn read_i16_vec<R: Read>(r: &mut R, n: usize) -> std::io::Result<Vec<i16>> {
     let mut buf = vec![0u8; n * 2];
     r.read_exact(&mut buf)?;
     Ok(buf.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect())
-}
-
-fn read_i8_vec<R: Read>(r: &mut R, n: usize) -> std::io::Result<Vec<i8>> {
-    let mut buf = vec![0u8; n];
-    r.read_exact(&mut buf)?;
-    Ok(buf.into_iter().map(|b| b as i8).collect())
 }
 
 fn read_i32_vec<R: Read>(r: &mut R, n: usize) -> std::io::Result<Vec<i32>> {
@@ -117,11 +111,11 @@ pub fn load_from_bytes(bytes: &[u8]) -> Result<NnueModel, LoadError> {
 
     let l0_weight = read_i16_vec(&mut cur, N_FEATURES * ACCUMULATOR_DIM)?;
     let l0_bias = read_i16_vec(&mut cur, ACCUMULATOR_DIM)?;
-    let l1_weight = read_i8_vec(&mut cur, ACCUMULATOR_DIM * HIDDEN_DIM)?;
+    let l1_weight = read_i16_vec(&mut cur, ACCUMULATOR_DIM * HIDDEN_DIM)?;
     let l1_bias = read_i32_vec(&mut cur, HIDDEN_DIM)?;
-    let l2_weight = read_i8_vec(&mut cur, HIDDEN_DIM * HIDDEN_DIM)?;
+    let l2_weight = read_i16_vec(&mut cur, HIDDEN_DIM * HIDDEN_DIM)?;
     let l2_bias = read_i32_vec(&mut cur, HIDDEN_DIM)?;
-    let l3_weight = read_i8_vec(&mut cur, HIDDEN_DIM)?;
+    let l3_weight = read_i16_vec(&mut cur, HIDDEN_DIM)?;
     let l3_bias = read_i32_vec(&mut cur, 1)?;
 
     Ok(NnueModel {
@@ -218,11 +212,11 @@ mod tests {
         buf.extend_from_slice(&(OUTPUT_SCALE as f32).to_le_bytes());
         let l0_w = vec![0u8; N_FEATURES * ACCUMULATOR_DIM * 2];
         let l0_b = vec![0u8; ACCUMULATOR_DIM * 2];
-        let l1_w = vec![0u8; ACCUMULATOR_DIM * HIDDEN_DIM];
+        let l1_w = vec![0u8; ACCUMULATOR_DIM * HIDDEN_DIM * 2];
         let l1_b = vec![0u8; HIDDEN_DIM * 4];
-        let l2_w = vec![0u8; HIDDEN_DIM * HIDDEN_DIM];
+        let l2_w = vec![0u8; HIDDEN_DIM * HIDDEN_DIM * 2];
         let l2_b = vec![0u8; HIDDEN_DIM * 4];
-        let l3_w = vec![0u8; HIDDEN_DIM];
+        let l3_w = vec![0u8; HIDDEN_DIM * 2];
         let l3_b = vec![0u8; 4];
         buf.extend(l0_w); buf.extend(l0_b);
         buf.extend(l1_w); buf.extend(l1_b);
@@ -256,16 +250,14 @@ mod tests {
     #[test]
     fn forward_with_bias_only() {
         // L3 bias = 1600 (in combined scale: WEIGHT_SCALE_HIDDEN²), all else 0.
-        // Expected output: 1600 / WEIGHT_SCALE_HIDDEN / OUTPUT_SCALE = 1600/64/16
-        // But pipeline: forward_raw returns out / WEIGHT_SCALE_HIDDEN, then
-        // evaluate() divides by OUTPUT_SCALE → 1600/64/16 = 1.5625 → 1.
+        // forward_raw = out / WEIGHT_SCALE_HIDDEN = 1600/64 = 25.
+        // evaluate = forward_raw / OUTPUT_SCALE = 25/1 = 25.
         let mut bytes = synth_zero_model();
         let l3_bias_offset = bytes.len() - 4;
         bytes[l3_bias_offset..].copy_from_slice(&1600i32.to_le_bytes());
         let model = load_from_bytes(&bytes).expect("load");
         let s = crate::board::BoardState::new(crate::variant::Variant::Kiswahili);
-        // forward_raw = 1600/64 = 25; evaluate = 25/16 = 1.
         assert_eq!(model.forward_raw(&[]), 25);
-        assert_eq!(model.evaluate(&s), 1);
+        assert_eq!(model.evaluate(&s), 25);
     }
 }

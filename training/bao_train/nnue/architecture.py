@@ -31,7 +31,12 @@ HIDDEN_DIM = 32
 WEIGHT_SCALE_L0 = 64
 WEIGHT_SCALE_HIDDEN = 64
 ACTIVATION_CLIP = 127
-OUTPUT_SCALE = 16
+# Format v2: hidden weights are int16 at scale 64, giving fp range ±512 —
+# plenty of headroom for unconstrained Kaiming-style training. Earlier i8
+# at scale 64 capped weights at ±1.98 which the optimiser couldn't honour
+# (trained L3 max was ±47, fully clipped to ±2 by export). Bumping i8→i16
+# adds ~17 KB to the model (negligible vs 305 KB total).
+OUTPUT_SCALE = 1
 
 
 @dataclass(frozen=True)
@@ -76,16 +81,20 @@ class NNUE(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        # L0 is a sparse-sum embedding: ~36 rows are summed per forward.
-        # Initialise so the accumulator pre-activation has std ~1, otherwise
-        # most ClippedReLU units die at zero and the gradient signal vanishes.
-        # std_target = 1 / sqrt(36) ≈ 0.17; uniform(-a, a) has std a/sqrt(3),
-        # so a ≈ 0.29. We use 0.3 for a small headroom.
-        nn.init.uniform_(self.l0_weight, -0.3, 0.3)
+        # L0 is a sparse-sum embedding of ~36 active rows per forward. With
+        # uniform(-10, 10) init the accumulator pre-activation has std ~35,
+        # so post-CReLU activations span [0, ~127] without saturating most
+        # units (which would kill gradients).
+        nn.init.uniform_(self.l0_weight, -10.0, 10.0)
         nn.init.zeros_(self.l0_bias)
         for m in (self.l1, self.l2, self.l3):
             nn.init.kaiming_uniform_(m.weight, a=5**0.5)
             nn.init.zeros_(m.bias)
+
+    def clamp_hidden_weights_(self) -> None:
+        """No-op in format v2 (hidden weights are int16, no clamping needed).
+        Kept for API stability with the trainer."""
+        pass
 
     def forward(
         self,

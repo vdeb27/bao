@@ -118,6 +118,57 @@ fn search_heuristic(
     Ok((r.score, r.depth_reached, r.nodes))
 }
 
+/// Search with the heuristic and return the best move as JSON plus
+/// `(score, depth, nodes)`. Returns `(None, ...)` if the position has no
+/// legal moves.
+#[pyfunction]
+fn search_best_heuristic(
+    state_bytes: &[u8],
+    max_depth: u8,
+    max_nodes: u64,
+) -> PyResult<(Option<String>, i32, u8, u64)> {
+    let state = unpack_state(state_bytes)?;
+    let eval = HeuristicEval::new();
+    let opts = SearchOptions {
+        max_depth,
+        max_nodes,
+        tt_slots: 1 << 16,
+    };
+    let r = engine_search(&state, &eval, opts);
+    let mv_json = r
+        .best_move
+        .map(|m| serde_json::to_string(&m))
+        .transpose()
+        .map_err(|e| PyValueError::new_err(format!("serialize move: {e}")))?;
+    Ok((mv_json, r.score, r.depth_reached, r.nodes))
+}
+
+/// Search using an NNUE blob as the evaluator. Returns `(best_move_json,
+/// score, depth, nodes)` like `search_best_heuristic`.
+#[pyfunction]
+fn search_best_nnue(
+    nnue_bytes: &[u8],
+    state_bytes: &[u8],
+    max_depth: u8,
+    max_nodes: u64,
+) -> PyResult<(Option<String>, i32, u8, u64)> {
+    let state = unpack_state(state_bytes)?;
+    let eval = NnueEval::from_bytes(nnue_bytes)
+        .map_err(|e| PyValueError::new_err(format!("nnue load: {e}")))?;
+    let opts = SearchOptions {
+        max_depth,
+        max_nodes,
+        tt_slots: 1 << 16,
+    };
+    let r = engine_search(&state, &eval, opts);
+    let mv_json = r
+        .best_move
+        .map(|m| serde_json::to_string(&m))
+        .transpose()
+        .map_err(|e| PyValueError::new_err(format!("serialize move: {e}")))?;
+    Ok((mv_json, r.score, r.depth_reached, r.nodes))
+}
+
 /// Parse a shard file's 32-byte header. Returns
 /// `(version, feature_len, record_stride, n_records, label_dtype)`.
 #[pyfunction]
@@ -192,5 +243,7 @@ fn bao_engine_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(nnue_indices_from_features, m)?)?;
     m.add_function(wrap_pyfunction!(nnue_n_features, m)?)?;
     m.add_function(wrap_pyfunction!(nnue_evaluate, m)?)?;
+    m.add_function(wrap_pyfunction!(search_best_heuristic, m)?)?;
+    m.add_function(wrap_pyfunction!(search_best_nnue, m)?)?;
     Ok(())
 }

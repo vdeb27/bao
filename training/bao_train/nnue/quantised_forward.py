@@ -21,7 +21,7 @@ HIDDEN_DIM = HIDDEN_SIZES[1]
 WEIGHT_SCALE_L0 = 64
 WEIGHT_SCALE_HIDDEN = 64
 ACTIVATION_CLIP = 127
-OUTPUT_SCALE = 16
+OUTPUT_SCALE = 1
 
 
 @dataclass
@@ -60,18 +60,19 @@ def load_from_bytes(blob: bytes) -> LoadedModel:
     pos += N_FEATURES * ACCUMULATOR_DIM * 2
     l0_b = np.frombuffer(blob, dtype=np.int16, count=ACCUMULATOR_DIM, offset=pos).copy()
     pos += ACCUMULATOR_DIM * 2
-    l1_w = np.frombuffer(blob, dtype=np.int8, count=ACCUMULATOR_DIM * HIDDEN_DIM, offset=pos)
+    # v2: hidden weights are int16
+    l1_w = np.frombuffer(blob, dtype=np.int16, count=ACCUMULATOR_DIM * HIDDEN_DIM, offset=pos)
     l1_w = l1_w.reshape(ACCUMULATOR_DIM, HIDDEN_DIM).copy()
-    pos += ACCUMULATOR_DIM * HIDDEN_DIM
+    pos += ACCUMULATOR_DIM * HIDDEN_DIM * 2
     l1_b = np.frombuffer(blob, dtype=np.int32, count=HIDDEN_DIM, offset=pos).copy()
     pos += HIDDEN_DIM * 4
-    l2_w = np.frombuffer(blob, dtype=np.int8, count=HIDDEN_DIM * HIDDEN_DIM, offset=pos)
+    l2_w = np.frombuffer(blob, dtype=np.int16, count=HIDDEN_DIM * HIDDEN_DIM, offset=pos)
     l2_w = l2_w.reshape(HIDDEN_DIM, HIDDEN_DIM).copy()
-    pos += HIDDEN_DIM * HIDDEN_DIM
+    pos += HIDDEN_DIM * HIDDEN_DIM * 2
     l2_b = np.frombuffer(blob, dtype=np.int32, count=HIDDEN_DIM, offset=pos).copy()
     pos += HIDDEN_DIM * 4
-    l3_w = np.frombuffer(blob, dtype=np.int8, count=HIDDEN_DIM, offset=pos).copy()
-    pos += HIDDEN_DIM
+    l3_w = np.frombuffer(blob, dtype=np.int16, count=HIDDEN_DIM, offset=pos).copy()
+    pos += HIDDEN_DIM * 2
     l3_b = np.frombuffer(blob, dtype=np.int32, count=1, offset=pos).copy()
     return LoadedModel(l0_w, l0_b, l1_w, l1_b, l2_w, l2_b, l3_w, l3_b)
 

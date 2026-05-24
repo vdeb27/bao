@@ -44,7 +44,12 @@ class TrainConfig:
     shard: Path
     out: Path
     epochs: int = 10
-    qat_epochs: int = 2
+    # QAT was too destructive on iter-1: weight-clamping after every step
+    # forced hidden weights to a coarse 1/64 grid that the optimiser kept
+    # trying to escape, regressing val_rmse from ~1330 (FP) to ~3000. We
+    # rely on post-training quantisation (export.py) instead until a
+    # proper straight-through-estimator implementation lands.
+    qat_epochs: int = 0
     batch: int = 16384
     # Plan §5.3 suggested 8.75e-4 (carried over from AlphaZero defaults); in
     # practice MSE on centi-kete labels (std ~3100) stalls at that rate. lr=5e-2
@@ -135,6 +140,8 @@ def train(cfg: TrainConfig) -> dict:
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.epochs)
 
     history: list[dict] = []
+    best_val = float("inf")
+    best_state = None
     for epoch in range(cfg.epochs):
         is_qat = epoch >= cfg.epochs - cfg.qat_epochs
         model.train()
@@ -152,6 +159,10 @@ def train(cfg: TrainConfig) -> dict:
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
+            # Clamp hidden weights into the int8-representable range so the
+            # post-training quantisation doesn't clip them. Cheap (3 small
+            # in-place ops) and behaves like Stockfish's weight constraint.
+            model.clamp_hidden_weights_()
             if is_qat:
                 quantise_in_place(model)
             train_loss += loss.item()
@@ -173,11 +184,21 @@ def train(cfg: TrainConfig) -> dict:
         tag = "QAT" if is_qat else "FP "
         print(f"epoch {epoch+1:2d}/{cfg.epochs} [{tag}] train_mse={train_loss:9.1f} val_rmse={val_rmse:7.2f} ({dt:.1f}s)")
         history.append(dict(epoch=epoch+1, train_mse=train_loss, val_rmse=val_rmse, qat=is_qat))
+        if val_rmse < best_val:
+            best_val = val_rmse
+            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            print(f"   → new best val_rmse={best_val:.2f}")
         sched.step()
 
     cfg.out.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"state_dict": model.state_dict(), "history": history, "config": cfg.__dict__}, cfg.out)
-    print(f"saved checkpoint to {cfg.out}")
+    final_state = best_state if best_state is not None else model.state_dict()
+    torch.save({
+        "state_dict": final_state,
+        "history": history,
+        "config": cfg.__dict__,
+        "best_val_rmse": best_val,
+    }, cfg.out)
+    print(f"saved best-val checkpoint to {cfg.out} (val_rmse={best_val:.2f})")
     return {"history": history, "model": model}
 
 

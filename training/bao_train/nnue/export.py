@@ -35,7 +35,7 @@ from .architecture import (
 from .transformer import N_FEATURES
 
 MAGIC = b"BAONNUE\0"
-VERSION = 1
+VERSION = 2  # v2: hidden weights are int16 (was int8 in v1)
 HIDDEN_SIZES = (ACCUMULATOR_DIM, HIDDEN_DIM, HIDDEN_DIM, 1)
 
 
@@ -52,14 +52,18 @@ def _quantise_l0_bias(b: torch.Tensor) -> np.ndarray:
 
 def _quantise_hidden_weight(w: torch.Tensor) -> np.ndarray:
     """PyTorch ``Linear`` stores weight as ``(out, in)``; export row-major
-    ``(in, out)`` so the runtime can do ``output[j] = sum_i input[i] * W[i, j]``."""
-    q = (w * WEIGHT_SCALE_HIDDEN).round().clamp(-127, 127).to(torch.int8)
+    ``(in, out)`` so the runtime can do ``output[j] = sum_i input[i] * W[i, j]``.
+    Format v2: int16 at scale 64 → fp range ±512."""
+    q = (w * WEIGHT_SCALE_HIDDEN).round().clamp(-32768, 32767).to(torch.int16)
     return q.detach().cpu().numpy().T.copy()  # transpose to (in, out)
 
 
 def _quantise_hidden_bias(b: torch.Tensor) -> np.ndarray:
-    combined = WEIGHT_SCALE_HIDDEN * WEIGHT_SCALE_HIDDEN
-    q = (b * combined).round().clamp(-(2**31), 2**31 - 1).to(torch.int32)
+    # Bias is added to (h_int · W_int) before the per-layer /64 rescale.
+    # h_int ∈ [0, 127] equals h_fp (the post-CReLU value), and W_int = W_fp·64,
+    # so the matmul yields a value at scale 64. The bias must therefore live
+    # at scale 64 too, otherwise it dwarfs the matmul contribution by 64×.
+    q = (b * WEIGHT_SCALE_HIDDEN).round().clamp(-(2**31), 2**31 - 1).to(torch.int32)
     return q.detach().cpu().numpy()
 
 
@@ -81,7 +85,7 @@ def export(model: NNUE, path: str | Path) -> Path:
         f.write(l0_b.tobytes())  # i16
 
         for layer in (model.l1, model.l2, model.l3):
-            f.write(_quantise_hidden_weight(layer.weight).tobytes())  # i8
+            f.write(_quantise_hidden_weight(layer.weight).tobytes())  # i16
             f.write(_quantise_hidden_bias(layer.bias).tobytes())  # i32
 
     return path
@@ -90,7 +94,7 @@ def export(model: NNUE, path: str | Path) -> Path:
 def expected_size() -> int:
     header = 8 + 2 + 2 + 8 + 4  # magic + version + n_features + hidden_sizes + quant_scale
     l0 = N_FEATURES * ACCUMULATOR_DIM * 2 + ACCUMULATOR_DIM * 2
-    l1 = ACCUMULATOR_DIM * HIDDEN_DIM * 1 + HIDDEN_DIM * 4
-    l2 = HIDDEN_DIM * HIDDEN_DIM * 1 + HIDDEN_DIM * 4
-    l3 = HIDDEN_DIM * 1 * 1 + 1 * 4
+    l1 = ACCUMULATOR_DIM * HIDDEN_DIM * 2 + HIDDEN_DIM * 4  # i16 weights
+    l2 = HIDDEN_DIM * HIDDEN_DIM * 2 + HIDDEN_DIM * 4
+    l3 = HIDDEN_DIM * 1 * 2 + 1 * 4
     return header + l0 + l1 + l2 + l3
