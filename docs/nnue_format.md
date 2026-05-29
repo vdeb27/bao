@@ -74,9 +74,15 @@ sparse-indices (35..38 active in 0..280)
 | `WEIGHT_SCALE_L0` | 64 | int16 = round(fp32 * 64); accumulator |
 | `WEIGHT_SCALE_HIDDEN` | 64 | int8 = round(fp32 * 64) for L1..L3 |
 | `ACTIVATION_CLIP` | 127 | ClippedReLU upper bound |
-| `OUTPUT_SCALE` | 1 | divides L3-output to yield centi-kete (network output is centi-kete directly) |
+| `OUTPUT_SCALE` | 16 | divides L3-output to yield centi-kete (model trains raw outputs ~16× labels) |
 
-Final score: `score_centikete = clamp(L3_output / OUTPUT_SCALE, ±LABEL_CLIP)`.
+Final score: `score_centikete = clamp(rdiv(L3_output, OUTPUT_SCALE), ±LABEL_CLIP)`.
+
+**Rounding**: all per-layer rescales use round-half-away-from-zero (`rdiv` in
+`loader.rs`, `_round_div` in `quantised_forward.py`). Truncation toward zero
+biases activations downward after ClippedReLU (everything ≥0 floors), giving
+a systematic ~115 cp negative drift on iter-1. Round-to-nearest restores
+symmetry (drift mean 22 cp on the same model).
 
 ## Bin layout
 

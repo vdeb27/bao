@@ -26,7 +26,7 @@ pub const HIDDEN_DIM: usize = 32;
 pub const WEIGHT_SCALE_L0: i32 = 64;
 pub const WEIGHT_SCALE_HIDDEN: i32 = 64;
 pub const ACTIVATION_CLIP: i32 = 127;
-pub const OUTPUT_SCALE: i32 = 1;
+pub const OUTPUT_SCALE: i32 = 16;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -136,6 +136,15 @@ fn clipped_relu(x: i32) -> i32 {
     x.clamp(0, ACTIVATION_CLIP)
 }
 
+/// Round-half-away-from-zero division. Truncated `x / d` biases activations
+/// downward (after ClippedReLU all values are ≥0, so truncation = floor),
+/// which compounds across layers into a systematic negative score offset
+/// (~115 cp mean on iter-1). Round-to-nearest is symmetric.
+#[inline]
+fn rdiv(x: i32, d: i32) -> i32 {
+    if x >= 0 { (x + d / 2) / d } else { -(((-x) + d / 2) / d) }
+}
+
 impl NnueModel {
     /// Integer forward pass on a set of sparse active indices. Returns the
     /// raw network output (in `OUTPUT_SCALE × centi-kete` units); divide by
@@ -157,7 +166,7 @@ impl NnueModel {
         // ClippedReLU on accumulator (rescale from L0-scale to activation-scale).
         let mut h1_in = [0i32; ACCUMULATOR_DIM];
         for (i, &a) in acc.iter().enumerate() {
-            h1_in[i] = clipped_relu(a / WEIGHT_SCALE_L0);
+            h1_in[i] = clipped_relu(rdiv(a, WEIGHT_SCALE_L0));
         }
 
         // L1: h2 = clipped_relu( (h1 · W1 + bias) / W_HIDDEN )
@@ -167,7 +176,7 @@ impl NnueModel {
             for i in 0..ACCUMULATOR_DIM {
                 sum += h1_in[i] * (self.l1_weight[i * HIDDEN_DIM + j] as i32);
             }
-            h2[j] = clipped_relu(sum / WEIGHT_SCALE_HIDDEN);
+            h2[j] = clipped_relu(rdiv(sum, WEIGHT_SCALE_HIDDEN));
         }
 
         // L2
@@ -177,7 +186,7 @@ impl NnueModel {
             for i in 0..HIDDEN_DIM {
                 sum += h2[i] * (self.l2_weight[i * HIDDEN_DIM + j] as i32);
             }
-            h3[j] = clipped_relu(sum / WEIGHT_SCALE_HIDDEN);
+            h3[j] = clipped_relu(rdiv(sum, WEIGHT_SCALE_HIDDEN));
         }
 
         // L3 → scalar, no activation
@@ -185,14 +194,14 @@ impl NnueModel {
         for i in 0..HIDDEN_DIM {
             out += h3[i] * (self.l3_weight[i] as i32);
         }
-        out / WEIGHT_SCALE_HIDDEN
+        rdiv(out, WEIGHT_SCALE_HIDDEN)
     }
 
     /// Evaluate a position: returns centi-kete score from the active
     /// player's perspective.
     pub fn evaluate(&self, state: &crate::board::BoardState) -> i32 {
         let idx = super::transformer::indices(state);
-        self.forward_raw(&idx) / OUTPUT_SCALE
+        rdiv(self.forward_raw(&idx), OUTPUT_SCALE)
     }
 }
 
@@ -249,15 +258,14 @@ mod tests {
 
     #[test]
     fn forward_with_bias_only() {
-        // L3 bias = 1600 (in combined scale: WEIGHT_SCALE_HIDDEN²), all else 0.
-        // forward_raw = out / WEIGHT_SCALE_HIDDEN = 1600/64 = 25.
-        // evaluate = forward_raw / OUTPUT_SCALE = 25/1 = 25.
+        // L3 bias = 2048 (scale WEIGHT_SCALE_HIDDEN = 64), all else 0.
+        // forward_raw = rdiv(2048, 64) = 32. evaluate = rdiv(32, 16) = 2.
         let mut bytes = synth_zero_model();
         let l3_bias_offset = bytes.len() - 4;
-        bytes[l3_bias_offset..].copy_from_slice(&1600i32.to_le_bytes());
+        bytes[l3_bias_offset..].copy_from_slice(&2048i32.to_le_bytes());
         let model = load_from_bytes(&bytes).expect("load");
         let s = crate::board::BoardState::new(crate::variant::Variant::Kiswahili);
-        assert_eq!(model.forward_raw(&[]), 25);
-        assert_eq!(model.evaluate(&s), 25);
+        assert_eq!(model.forward_raw(&[]), 32);
+        assert_eq!(model.evaluate(&s), 2);
     }
 }

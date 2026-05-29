@@ -21,7 +21,7 @@ HIDDEN_DIM = HIDDEN_SIZES[1]
 WEIGHT_SCALE_L0 = 64
 WEIGHT_SCALE_HIDDEN = 64
 ACTIVATION_CLIP = 127
-OUTPUT_SCALE = 1
+OUTPUT_SCALE = 16
 
 
 @dataclass
@@ -81,15 +81,17 @@ def _clipped_relu(x: np.ndarray) -> np.ndarray:
     return np.clip(x, 0, ACTIVATION_CLIP)
 
 
-def _trunc_div(x: np.ndarray | int, d: int) -> np.ndarray | int:
-    """Truncated division (round toward zero), matching Rust's integer `/`.
+def _round_div(x: np.ndarray | int, d: int) -> np.ndarray | int:
+    """Round-half-away-from-zero division, matching Rust ``rdiv``.
 
-    NumPy's `//` on int arrays *floors*, which diverges from Rust for
-    negative numerators. Convert via signed magnitude / sign."""
+    Earlier we used truncation toward zero, but after ClippedReLU all
+    activations are ≥0, so truncation = floor — biasing the network output
+    systematically negative (~115 cp mean on iter-1)."""
+    half = d // 2
     if isinstance(x, np.ndarray):
-        sign = np.sign(x)
-        return sign * (np.abs(x) // d)
-    return int(x / d) if x >= 0 else -((-x) // d)
+        sign = np.where(x >= 0, 1, -1).astype(x.dtype)
+        return sign * ((np.abs(x) + half) // d)
+    return (x + half) // d if x >= 0 else -(((-x) + half) // d)
 
 
 def forward_raw(model: LoadedModel, indices: list[int]) -> int:
@@ -98,15 +100,15 @@ def forward_raw(model: LoadedModel, indices: list[int]) -> int:
     if indices:
         rows = model.l0_w[np.asarray(indices, dtype=np.int64)]
         acc += rows.astype(np.int32).sum(axis=0)
-    h1 = _clipped_relu(_trunc_div(acc, WEIGHT_SCALE_L0))
+    h1 = _clipped_relu(_round_div(acc, WEIGHT_SCALE_L0))
     h2_pre = model.l1_b + h1 @ model.l1_w.astype(np.int32)
-    h2 = _clipped_relu(_trunc_div(h2_pre, WEIGHT_SCALE_HIDDEN))
+    h2 = _clipped_relu(_round_div(h2_pre, WEIGHT_SCALE_HIDDEN))
     h3_pre = model.l2_b + h2 @ model.l2_w.astype(np.int32)
-    h3 = _clipped_relu(_trunc_div(h3_pre, WEIGHT_SCALE_HIDDEN))
+    h3 = _clipped_relu(_round_div(h3_pre, WEIGHT_SCALE_HIDDEN))
     out = int(model.l3_b[0] + (h3 @ model.l3_w.astype(np.int32)).item())
-    return _trunc_div(out, WEIGHT_SCALE_HIDDEN)
+    return _round_div(out, WEIGHT_SCALE_HIDDEN)
 
 
 def evaluate(model: LoadedModel, indices: list[int]) -> int:
     raw = forward_raw(model, indices)
-    return _trunc_div(raw, OUTPUT_SCALE)
+    return _round_div(raw, OUTPUT_SCALE)

@@ -23,7 +23,7 @@ from bao_train.nnue.train import ShardDataset, collate
 
 
 def main() -> None:
-    shard = Shard("data/iter1-5M.bin")
+    shard = Shard("/home/johan/Documents/Claude-Code/bao/training/data/iter1-5M.bin")
     rng = np.random.default_rng(42)
     idx = rng.permutation(len(shard))[:60_000]
     train_idx, val_idx = idx[:50_000], idx[50_000:]

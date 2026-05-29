@@ -31,12 +31,16 @@ HIDDEN_DIM = 32
 WEIGHT_SCALE_L0 = 64
 WEIGHT_SCALE_HIDDEN = 64
 ACTIVATION_CLIP = 127
-# Format v2: hidden weights are int16 at scale 64, giving fp range ±512 —
-# plenty of headroom for unconstrained Kaiming-style training. Earlier i8
-# at scale 64 capped weights at ±1.98 which the optimiser couldn't honour
-# (trained L3 max was ±47, fully clipped to ±2 by export). Bumping i8→i16
-# adds ~17 KB to the model (negligible vs 305 KB total).
-OUTPUT_SCALE = 1
+# Format v2: hidden weights are int16 at scale 64, giving fp range ±512.
+# Earlier i8 at scale 64 capped weights at ±1.98 which the trained L3 max
+# (±47) couldn't honour — export clipped them all and the network collapsed.
+# OUTPUT_SCALE=16 was empirically the right rescale for AdamW lr=5e-2 on
+# ±8000-cent labels: the network learns raw outputs of ±128000 (well within
+# accumulator range of 32·127·512 = 2M), pred = raw/16 matches labels. We
+# tried OUTPUT_SCALE=1 in iter-1b but it stalled completely (val_rmse=3054
+# over 10 epochs) — gradient flow through 4 layers needs the dampening that
+# OUTPUT_SCALE=16 provides.
+OUTPUT_SCALE = 16
 
 
 @dataclass(frozen=True)
@@ -81,11 +85,10 @@ class NNUE(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        # L0 is a sparse-sum embedding of ~36 active rows per forward. With
-        # uniform(-10, 10) init the accumulator pre-activation has std ~35,
-        # so post-CReLU activations span [0, ~127] without saturating most
-        # units (which would kill gradients).
-        nn.init.uniform_(self.l0_weight, -10.0, 10.0)
+        # Small L0 init: accumulator std ~1 → mostly small positives after
+        # CReLU, gradient flow stays healthy. v2 tried ±10 to push activations
+        # toward the middle of [0, 127] but it caused complete stall.
+        nn.init.uniform_(self.l0_weight, -0.3, 0.3)
         nn.init.zeros_(self.l0_bias)
         for m in (self.l1, self.l2, self.l3):
             nn.init.kaiming_uniform_(m.weight, a=5**0.5)
