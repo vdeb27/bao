@@ -28,9 +28,10 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use bao_engine::{
-    apply, encode_features, legal_moves, search, BoardState, HeuristicEval, Move, SearchOptions,
-    ShardWriter, Variant, FEATURE_LEN,
+    apply, encode_features, legal_moves, search, BoardState, Evaluator, HeuristicEval, Move,
+    SearchOptions, ShardWriter, Variant, FEATURE_LEN,
 };
+use bao_engine::eval::nnue::NnueEval;
 use bao_engine::features::clip_label;
 
 struct Args {
@@ -42,6 +43,7 @@ struct Args {
     play_depth: u8,
     play_nodes: u64,
     seed: u64,
+    nnue: Option<PathBuf>,
 }
 
 fn parse_args() -> Args {
@@ -55,6 +57,7 @@ fn parse_args() -> Args {
     let mut play_depth: u8 = 5;
     let mut play_nodes: u64 = 5_000;
     let mut seed: u64 = 0xC0FFEE_BABE_DEAD;
+    let mut nnue: Option<PathBuf> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(k) = args.next() {
@@ -67,10 +70,11 @@ fn parse_args() -> Args {
             "--play-depth" => play_depth = args.next().unwrap().parse().unwrap(),
             "--play-nodes" => play_nodes = args.next().unwrap().parse().unwrap(),
             "--seed" => seed = args.next().unwrap().parse().unwrap(),
+            "--nnue" => nnue = Some(PathBuf::from(args.next().expect("--nnue needs value"))),
             other => panic!("unknown flag: {}", other),
         }
     }
-    Args { out, n, threads, label_depth, label_nodes, play_depth, play_nodes, seed }
+    Args { out, n, threads, label_depth, label_nodes, play_depth, play_nodes, seed, nnue }
 }
 
 struct Rng(u64);
@@ -95,8 +99,8 @@ impl Rng {
 /// Generate positions from one self-play game. Mix:
 /// - games whose first 4-8 plies are uniform-random, then heuristic ply
 /// - games whose every move is uniform-random (for distribution coverage)
-fn play_one_game(
-    eval: &HeuristicEval,
+fn play_one_game<E: Evaluator>(
+    eval: &E,
     rng: &mut Rng,
     play_opts: SearchOptions,
     random_only: bool,
@@ -129,14 +133,14 @@ fn play_one_game(
     }
 }
 
-fn worker(
+fn worker<E: Evaluator + Sync>(
+    eval: &E,
     target_records: u32,
     written: &Mutex<u32>,
     out_writer: &Mutex<ShardWriter<BufWriter<std::fs::File>>>,
     seed: u64,
     args: &Args,
 ) {
-    let eval = HeuristicEval::new();
     let mut rng = Rng::new(seed);
     let play_opts = SearchOptions {
         max_depth: args.play_depth,
@@ -155,7 +159,7 @@ fn worker(
         let random_only = rng.range(10) < 3;
         let sample_every = if random_only { 5 } else { 3 };
         batch.clear();
-        play_one_game(&eval, &mut rng, play_opts, random_only, &mut batch, sample_every);
+        play_one_game(eval, &mut rng, play_opts, random_only, &mut batch, sample_every);
 
         for pos in batch.drain(..) {
             // Skip terminal / no-move positions (encode would still work but
@@ -163,7 +167,7 @@ fn worker(
             if pos.winner.is_some() { continue; }
             if legal_moves(&pos).is_empty() { continue; }
 
-            let r = search(&pos, &eval, label_opts);
+            let r = search(&pos, eval, label_opts);
             let label = clip_label(r.score);
 
             let mut feats = [0u8; FEATURE_LEN];
@@ -190,6 +194,22 @@ fn worker(
     }
 }
 
+fn run<E: Evaluator + Sync>(
+    eval: &E,
+    args: &Args,
+    out_writer: &Mutex<ShardWriter<BufWriter<std::fs::File>>>,
+    written: &Mutex<u32>,
+) {
+    std::thread::scope(|scope| {
+        for t in 0..args.threads {
+            let seed = args.seed ^ ((t as u64).wrapping_mul(0x9E3779B97F4A7C15));
+            scope.spawn(move || {
+                worker(eval, args.n, written, out_writer, seed, args);
+            });
+        }
+    });
+}
+
 fn main() {
     let args = parse_args();
     eprintln!("generate_positions:");
@@ -201,6 +221,10 @@ fn main() {
     eprintln!("  play_depth  = {}", args.play_depth);
     eprintln!("  play_nodes  = {}", args.play_nodes);
     eprintln!("  seed        = {:#x}", args.seed);
+    match &args.nnue {
+        Some(p) => eprintln!("  eval        = nnue ({})", p.display()),
+        None => eprintln!("  eval        = heuristic"),
+    }
 
     if let Some(parent) = args.out.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -213,17 +237,17 @@ fn main() {
     let written: Mutex<u32> = Mutex::new(0);
 
     let t0 = std::time::Instant::now();
-    std::thread::scope(|scope| {
-        for t in 0..args.threads {
-            let out_writer_ref = &out_writer;
-            let written_ref = &written;
-            let args_ref = &args;
-            let seed = args.seed ^ ((t as u64).wrapping_mul(0x9E3779B97F4A7C15));
-            scope.spawn(move || {
-                worker(args_ref.n, written_ref, out_writer_ref, seed, args_ref);
-            });
+    match &args.nnue {
+        Some(path) => {
+            let bytes = std::fs::read(path).expect("read nnue");
+            let eval = NnueEval::from_bytes(&bytes).expect("load nnue");
+            run(&eval, &args, &out_writer, &written);
         }
-    });
+        None => {
+            let eval = HeuristicEval::new();
+            run(&eval, &args, &out_writer, &written);
+        }
+    }
     let elapsed = t0.elapsed();
 
     let writer = out_writer.into_inner().unwrap();
