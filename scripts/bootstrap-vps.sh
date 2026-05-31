@@ -9,7 +9,18 @@ cd "$REPO_ROOT"
 echo "==> apt deps"
 sudo apt-get update
 sudo apt-get install -y build-essential pkg-config libssl-dev curl git \
-    python3.12 python3.12-venv python3-pip
+    python3 python3-venv python3-pip python3-dev
+
+# Use whatever python3 is on PATH; require >= 3.10 (PyTorch + our code).
+PY=python3
+PY_VERSION="$("$PY" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+PY_MAJOR="${PY_VERSION%%.*}"
+PY_MINOR="${PY_VERSION##*.}"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
+    echo "ERROR: need Python >= 3.10, found $PY_VERSION" >&2
+    exit 1
+fi
+echo "    using Python $PY_VERSION"
 
 echo "==> rustup (skipped if already installed)"
 if ! command -v cargo >/dev/null 2>&1; then
@@ -20,7 +31,7 @@ fi
 
 echo "==> python venv for PyO3 binding"
 if [ ! -d bindings/py/.venv ]; then
-    python3.12 -m venv bindings/py/.venv
+    "$PY" -m venv bindings/py/.venv
 fi
 bindings/py/.venv/bin/pip install --upgrade pip
 bindings/py/.venv/bin/pip install maturin torch numpy
