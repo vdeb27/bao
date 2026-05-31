@@ -55,8 +55,11 @@ cargo build --release -p bao-engine
 cargo build --release --example generate_positions -p bao-engine
 
 echo "==> build PyO3 binding"
+# If the system Python is newer than PyO3's max supported version (e.g. 3.14
+# vs PyO3 0.22's 3.13), build against the stable ABI via forward-compat.
 cd bindings/py
-VIRTUAL_ENV="$(pwd)/.venv" .venv/bin/maturin develop --release
+VIRTUAL_ENV="$(pwd)/.venv" PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
+    .venv/bin/maturin develop --release
 cd "$REPO_ROOT"
 
 echo "==> done"
