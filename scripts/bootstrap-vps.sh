@@ -33,20 +33,22 @@ echo "==> python venv for PyO3 binding"
 if [ ! -d bindings/py/.venv ]; then
     "$PY" -m venv bindings/py/.venv
 fi
-# Many VPSes mount /tmp as a small tmpfs (RAM-backed). pip unpacks wheels
-# there by default, so a big torch wheel blows the tmpfs limit ("Disk quota
-# exceeded") even when $HOME has plenty of space. Point pip's tmp at a dir
-# on the real disk under the repo.
-PIP_TMP="$REPO_ROOT/.pip-tmp"
-mkdir -p "$PIP_TMP"
-export TMPDIR="$PIP_TMP"
+# Many VPSes mount /tmp as a small tmpfs (RAM-backed). pip and maturin unpack
+# to $TMPDIR by default, so a big torch wheel (or a maturin build dir) blows
+# the tmpfs limit ("Disk quota exceeded") even when $HOME has plenty of space.
+# Point the temp dir at the real disk under the repo for the whole build, and
+# clean it up at the very end (cleaning it mid-script would pull TMPDIR out
+# from under maturin).
+LOCAL_TMP="$REPO_ROOT/.build-tmp"
+mkdir -p "$LOCAL_TMP"
+export TMPDIR="$LOCAL_TMP"
+trap 'rm -rf "$LOCAL_TMP"' EXIT
 
 bindings/py/.venv/bin/pip install --no-cache-dir --upgrade pip
 # CPU-only torch is ~200 MB vs ~800 MB with CUDA wheels — we train CPU-only.
 bindings/py/.venv/bin/pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu torch
 bindings/py/.venv/bin/pip install --no-cache-dir maturin numpy
-rm -rf "$PIP_TMP"
 
 echo "==> build engine (release)"
 cargo build --release -p bao-engine
