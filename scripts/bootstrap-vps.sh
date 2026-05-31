@@ -33,8 +33,11 @@ echo "==> python venv for PyO3 binding"
 if [ ! -d bindings/py/.venv ]; then
     "$PY" -m venv bindings/py/.venv
 fi
-bindings/py/.venv/bin/pip install --upgrade pip
-bindings/py/.venv/bin/pip install maturin torch numpy
+bindings/py/.venv/bin/pip install --no-cache-dir --upgrade pip
+# CPU-only torch is ~200 MB vs ~800 MB with CUDA wheels — we train CPU-only.
+bindings/py/.venv/bin/pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu torch
+bindings/py/.venv/bin/pip install --no-cache-dir maturin numpy
 
 echo "==> build engine (release)"
 cargo build --release -p bao-engine
